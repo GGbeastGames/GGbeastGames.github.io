@@ -41,6 +41,7 @@ Build also creates `dist/404.html` + `dist/.nojekyll` for GitHub Pages SPA fallb
 - ✅ Phase 6: Profile + Missions + retention systems
 - ✅ Phase 7: Casino + Flux side-economy
 - ✅ Phase 8: PvP Arena + ranked progression
+- ✅ Phase 9: Blockchain market + defensive upgrades
 
 ## Phase docs
 - `docs/PHASE_01_CHECKLIST.md`
@@ -51,6 +52,7 @@ Build also creates `dist/404.html` + `dist/.nojekyll` for GitHub Pages SPA fallb
 - `docs/PHASE_06_PROFILE_MISSIONS_RETENTION.md`
 - `docs/PHASE_07_CASINO_FLUX.md`
 - `docs/PHASE_08_PVP_ARENA.md`
+- `docs/PHASE_09_BLOCKCHAIN_MARKET.md`
 - `docs/ASSET_PIPELINE.md`
 - `docs/ARCHITECTURE.md`
 - `docs/ECONOMY_BASELINE.md`

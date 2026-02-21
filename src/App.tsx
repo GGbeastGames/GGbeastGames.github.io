@@ -10,6 +10,7 @@ import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { onValue, ref as dbRef, remove, set } from 'firebase/database';
 import { auth, rtdb, storage } from './config/firebase';
 import { BlackMarketApp } from './components/apps/BlackMarketApp';
+import { BlockchainApp } from './components/apps/BlockchainApp';
 import { CasinoApp } from './components/apps/CasinoApp';
 import { IndexApp } from './components/apps/IndexApp';
 import { PvpApp } from './components/apps/PvpApp';
@@ -30,9 +31,17 @@ import {
 import { RetentionState, applyActivity, applyDailyReset, claimDailyStreak, claimMissionReward, defaultRetentionState } from './game/retention';
 import { CasinoState, buyLuckCharm, defaultCasinoState, playCasinoRound } from './game/casino';
 import { PvpMatchState, PvpQueueEntry, RankedState, createMatch, defaultRankedState, playRound, resolveMatch } from './game/pvp';
+import {
+  BlockchainState,
+  buyShares,
+  defaultBlockchainState,
+  maybeRefreshMarket,
+  sellShares,
+  upgradeBlockSecurity
+} from './game/blockchain';
 
 type AppPhase = 'boot' | 'login' | 'desktop';
-type AppId = 'terminal' | 'market' | 'index' | 'profile' | 'casino' | 'pvp' | 'settings';
+type AppId = 'terminal' | 'market' | 'index' | 'profile' | 'casino' | 'pvp' | 'blockchain' | 'settings';
 
 type WindowState = {
   id: AppId;
@@ -57,6 +66,7 @@ type PersistedDesktop = {
   retention: RetentionState;
   casino: CasinoState;
   ranked: RankedState;
+  blockchain: BlockchainState;
 };
 
 const STORAGE_KEY = 'aionous.desktop.v3';
@@ -70,6 +80,7 @@ const appTemplates: Record<AppId, Omit<WindowState, 'isOpen' | 'isMinimized' | '
   profile: { id: 'profile', title: 'Profile', x: 760, y: 100, width: 430, height: 470 },
   casino: { id: 'casino', title: 'Casino', x: 470, y: 120, width: 500, height: 390 },
   pvp: { id: 'pvp', title: 'PvP Arena', x: 380, y: 90, width: 620, height: 420 },
+  blockchain: { id: 'blockchain', title: 'Blockchain', x: 260, y: 70, width: 640, height: 420 },
   settings: { id: 'settings', title: 'Settings', x: 800, y: 250, width: 350, height: 240 }
 };
 
@@ -119,6 +130,7 @@ function readPersisted(): PersistedDesktop {
     retention: defaultRetentionState,
     casino: defaultCasinoState,
     ranked: defaultRankedState,
+    blockchain: defaultBlockchainState,
     logs: [
       makeLog('ROOTACCESS terminal online. Type `help` to list commands.', 'success'),
       makeLog('Mission set: run command loops, then claim mission rewards in Profile.', 'info')
@@ -138,6 +150,7 @@ function readPersisted(): PersistedDesktop {
       retention: parsed.retention ? { ...defaults.retention, ...parsed.retention } : defaults.retention,
       casino: parsed.casino ? { ...defaults.casino, ...parsed.casino } : defaults.casino,
       ranked: parsed.ranked ? { ...defaults.ranked, ...parsed.ranked } : defaults.ranked,
+      blockchain: parsed.blockchain ? { ...defaults.blockchain, ...parsed.blockchain } : defaults.blockchain,
       logs: Array.isArray(parsed.logs) ? parsed.logs.slice(-MAX_LOGS) : defaults.logs
     };
   } catch {
@@ -159,6 +172,7 @@ export function App() {
   const [pvpQueue, setPvpQueue] = useState<PvpQueueEntry[]>([]);
   const [inPvpQueue, setInPvpQueue] = useState(false);
   const [activeMatch, setActiveMatch] = useState<PvpMatchState | null>(null);
+  const [blockchain, setBlockchain] = useState<BlockchainState>(initial.blockchain);
   const [logs, setLogs] = useState<TerminalLog[]>(initial.logs);
 
   const [email, setEmail] = useState('');
@@ -196,16 +210,24 @@ export function App() {
         retention,
         casino,
         ranked,
+        blockchain,
         logs: logs.slice(-MAX_LOGS)
       } satisfies PersistedDesktop)
     );
-  }, [windows, player, cooldowns, progression, shopInventory, retention, casino, ranked, logs]);
+  }, [windows, player, cooldowns, progression, shopInventory, retention, casino, ranked, blockchain, logs]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
       setPlayer((prev) => passiveTraceDecay(prev));
       setRetention((prev) => applyDailyReset(prev));
     }, 5_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setBlockchain((prev) => maybeRefreshMarket(prev));
+    }, 10_000);
     return () => window.clearInterval(interval);
   }, []);
 
@@ -431,6 +453,42 @@ export function App() {
     }
   }
 
+  function onBuyShares(ticker: keyof BlockchainState['companies'], amount: number) {
+    const result = buyShares(blockchain, ticker, amount, player.nops);
+    if (!result.cost) {
+      appendLogs([makeLog(result.message, 'warn')]);
+      return;
+    }
+
+    setBlockchain(result.next);
+    setPlayer((prev) => ({ ...prev, nops: prev.nops - result.cost }));
+    appendLogs([makeLog(result.message, 'success')]);
+  }
+
+  function onSellShares(ticker: keyof BlockchainState['companies'], amount: number) {
+    const result = sellShares(blockchain, ticker, amount);
+    if (!result.payout) {
+      appendLogs([makeLog(result.message, 'warn')]);
+      return;
+    }
+
+    setBlockchain(result.next);
+    setPlayer((prev) => ({ ...prev, nops: prev.nops + result.payout }));
+    appendLogs([makeLog(result.message, 'success')]);
+  }
+
+  function onUpgradeBlockSecurity(ticker: keyof BlockchainState['companies']) {
+    const result = upgradeBlockSecurity(blockchain, ticker, player.nops);
+    if (!result.cost) {
+      appendLogs([makeLog(result.message, 'warn')]);
+      return;
+    }
+
+    setBlockchain(result.next);
+    setPlayer((prev) => ({ ...prev, nops: prev.nops - result.cost }));
+    appendLogs([makeLog(result.message, 'success')]);
+  }
+
   async function onUploadProfilePhoto(file: File) {
     const maxSize = 1_000_000;
     if (file.size > maxSize) {
@@ -588,7 +646,7 @@ export function App() {
       <div className="desktop-wallpaper" />
       <header className="desktop-header">
         <div>
-          <p className="kicker">Aionous OS // Phase 8</p>
+          <p className="kicker">Aionous OS // Phase 9</p>
           <h2>Operator: {desktopIdentity}</h2>
         </div>
         <div className="header-metrics">
@@ -655,6 +713,7 @@ export function App() {
                   pvpQueue,
                   inPvpQueue,
                   activeMatch,
+                  blockchain,
                   identity: desktopIdentity,
                   setPlayer,
                   setCooldowns,
@@ -670,6 +729,9 @@ export function App() {
                   onTogglePvpQueue,
                   onStartPvpMatch,
                   onPlayPvpRound,
+                  onBuyShares,
+                  onSellShares,
+                  onUpgradeBlockSecurity,
                   onUploadProfilePhoto
                 })}
               </div>
@@ -718,6 +780,7 @@ type RenderContext = {
   pvpQueue: PvpQueueEntry[];
   inPvpQueue: boolean;
   activeMatch: PvpMatchState | null;
+  blockchain: BlockchainState;
   identity: string;
   setPlayer: (state: PlayerState) => void;
   setCooldowns: (cooldowns: Cooldowns) => void;
@@ -733,6 +796,9 @@ type RenderContext = {
   onTogglePvpQueue: () => void;
   onStartPvpMatch: (opponentAlias: string) => void;
   onPlayPvpRound: () => void;
+  onBuyShares: (ticker: keyof BlockchainState['companies'], amount: number) => void;
+  onSellShares: (ticker: keyof BlockchainState['companies'], amount: number) => void;
+  onUpgradeBlockSecurity: (ticker: keyof BlockchainState['companies']) => void;
   onUploadProfilePhoto: (file: File) => void;
 };
 
@@ -797,6 +863,16 @@ function renderWindowContent(id: AppId, ctx: RenderContext) {
           onToggleQueue={ctx.onTogglePvpQueue}
           onStartMatch={ctx.onStartPvpMatch}
           onPlayRound={ctx.onPlayPvpRound}
+        />
+      );
+    case 'blockchain':
+      return (
+        <BlockchainApp
+          blockchain={ctx.blockchain}
+          balance={ctx.player.nops}
+          onBuy={ctx.onBuyShares}
+          onSell={ctx.onSellShares}
+          onUpgradeSecurity={ctx.onUpgradeBlockSecurity}
         />
       );
     case 'settings':

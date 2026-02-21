@@ -24,7 +24,7 @@ Casino gameplay loop, Flux rewards, badge milestones, and controlled odds.
 ## Phase 08 — PvP Ranked Arena ✅
 Queue, match flow, shard scoring, ranked points, seasons, and replay-safe logs.
 
-## Phase 09 — Blockchain Market Fiction System
+## Phase 09 — Blockchain Market Fiction System ✅
 VALK/GLYPH/ZERO/PULSE/TITAN company market loops and defensive investment mechanics.
 
 ## Phase 10 — Growth Systems A-D
