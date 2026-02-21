@@ -17,6 +17,11 @@ class RootErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundar
     console.error('Root render failure:', error);
   }
 
+  componentDidMount() {
+    const fallback = document.getElementById('boot-fallback');
+    if (fallback) fallback.classList.add('hidden');
+  }
+
   render() {
     if (this.state.hasError) {
       return (

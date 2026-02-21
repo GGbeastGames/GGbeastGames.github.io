@@ -43,6 +43,7 @@ Build also creates `dist/404.html` + `dist/.nojekyll` for GitHub Pages SPA fallb
 - ✅ Phase 8: PvP Arena + ranked progression
 - ✅ Phase 9: Blockchain market + defensive upgrades
 - ✅ Phase 10: Ops/Factions/Crafting/Heat growth systems
+- ✅ Phase 11: Cosmetics, Story Seasons, Mentor system
 
 ## Phase docs
 - `docs/PHASE_01_CHECKLIST.md`
@@ -55,7 +56,15 @@ Build also creates `dist/404.html` + `dist/.nojekyll` for GitHub Pages SPA fallb
 - `docs/PHASE_08_PVP_ARENA.md`
 - `docs/PHASE_09_BLOCKCHAIN_MARKET.md`
 - `docs/PHASE_10_GROWTH_SYSTEMS.md`
+- `docs/PHASE_11_SEASONS_COSMETICS_MENTOR.md`
 - `docs/ASSET_PIPELINE.md`
 - `docs/ARCHITECTURE.md`
 - `docs/ECONOMY_BASELINE.md`
 - `docs/ROADMAP.md`
+
+
+## GitHub Pages root-cause checklist (white screen)
+1. In repo **Settings → Pages**, set **Build and deployment** to **GitHub Actions** (not branch/Docs).
+2. Ensure workflow `.github/workflows/deploy-pages.yml` runs successfully and deploys `dist/` artifact.
+3. If previously configured to serve from `/docs` or branch root with markdown index, Pages can show a plain white/blank page instead of app runtime.
+4. After changing Pages source, hard refresh with cache clear (Ctrl/Cmd+Shift+R).

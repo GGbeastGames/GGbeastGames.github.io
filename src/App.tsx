@@ -14,6 +14,7 @@ import { BlockchainApp } from './components/apps/BlockchainApp';
 import { CasinoApp } from './components/apps/CasinoApp';
 import { GrowthApp } from './components/apps/GrowthApp';
 import { IndexApp } from './components/apps/IndexApp';
+import { SeasonApp } from './components/apps/SeasonApp';
 import { PvpApp } from './components/apps/PvpApp';
 import { ProfileApp } from './components/apps/ProfileApp';
 import { TerminalApp } from './components/apps/TerminalApp';
@@ -50,9 +51,10 @@ import {
   resolveContract,
   startContract
 } from './game/growth';
+import { SeasonState, applyTheme, buyCosmetic, createMentorTicket, defaultSeasonState, matchMentor } from './game/season';
 
 type AppPhase = 'boot' | 'login' | 'desktop';
-type AppId = 'terminal' | 'market' | 'index' | 'profile' | 'casino' | 'pvp' | 'blockchain' | 'growth' | 'settings';
+type AppId = 'terminal' | 'market' | 'index' | 'profile' | 'casino' | 'pvp' | 'blockchain' | 'growth' | 'season' | 'settings';
 
 type WindowState = {
   id: AppId;
@@ -79,6 +81,7 @@ type PersistedDesktop = {
   ranked: RankedState;
   blockchain: BlockchainState;
   growth: GrowthState;
+  season: SeasonState;
 };
 
 const STORAGE_KEY = 'aionous.desktop.v3';
@@ -94,6 +97,7 @@ const appTemplates: Record<AppId, Omit<WindowState, 'isOpen' | 'isMinimized' | '
   pvp: { id: 'pvp', title: 'PvP Arena', x: 380, y: 90, width: 620, height: 420 },
   blockchain: { id: 'blockchain', title: 'Blockchain', x: 260, y: 70, width: 640, height: 420 },
   growth: { id: 'growth', title: 'Growth Hub', x: 230, y: 95, width: 700, height: 430 },
+  season: { id: 'season', title: 'Season Hub', x: 250, y: 85, width: 720, height: 430 },
   settings: { id: 'settings', title: 'Settings', x: 800, y: 250, width: 350, height: 240 }
 };
 
@@ -145,6 +149,7 @@ function readPersisted(): PersistedDesktop {
     ranked: defaultRankedState,
     blockchain: defaultBlockchainState,
     growth: defaultGrowthState,
+    season: defaultSeasonState,
     logs: [
       makeLog('ROOTACCESS terminal online. Type `help` to list commands.', 'success'),
       makeLog('Mission set: run command loops, then claim mission rewards in Profile.', 'info')
@@ -166,6 +171,7 @@ function readPersisted(): PersistedDesktop {
       ranked: parsed.ranked ? { ...defaults.ranked, ...parsed.ranked } : defaults.ranked,
       blockchain: parsed.blockchain ? { ...defaults.blockchain, ...parsed.blockchain } : defaults.blockchain,
       growth: parsed.growth ? { ...defaults.growth, ...parsed.growth } : defaults.growth,
+      season: parsed.season ? { ...defaults.season, ...parsed.season } : defaults.season,
       logs: Array.isArray(parsed.logs) ? parsed.logs.slice(-MAX_LOGS) : defaults.logs
     };
   } catch {
@@ -189,6 +195,7 @@ export function App() {
   const [activeMatch, setActiveMatch] = useState<PvpMatchState | null>(null);
   const [blockchain, setBlockchain] = useState<BlockchainState>(initial.blockchain);
   const [growth, setGrowth] = useState<GrowthState>(initial.growth);
+  const [season, setSeason] = useState<SeasonState>(initial.season);
   const [logs, setLogs] = useState<TerminalLog[]>(initial.logs);
 
   const [email, setEmail] = useState('');
@@ -228,10 +235,11 @@ export function App() {
         ranked,
         blockchain,
         growth,
+        season,
         logs: logs.slice(-MAX_LOGS)
       } satisfies PersistedDesktop)
     );
-  }, [windows, player, cooldowns, progression, shopInventory, retention, casino, ranked, blockchain, growth, logs]);
+  }, [windows, player, cooldowns, progression, shopInventory, retention, casino, ranked, blockchain, growth, season, logs]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -540,6 +548,38 @@ export function App() {
     ]);
   }
 
+  function onBuySeasonCosmetic(itemId: string, price: number) {
+    if (player.nops < price) {
+      appendLogs([makeLog('Not enough Ø to buy cosmetic.', 'warn')]);
+      return;
+    }
+    const result = buyCosmetic(season, itemId);
+    if (!result.ok) {
+      appendLogs([makeLog(result.message, 'warn')]);
+      return;
+    }
+    setSeason(result.next);
+    setPlayer((prev) => ({ ...prev, nops: prev.nops - price }));
+    appendLogs([makeLog(result.message, 'success')]);
+  }
+
+  function onApplySeasonTheme(itemId: string) {
+    setSeason((prev) => applyTheme(prev, itemId));
+    appendLogs([makeLog(`Theme applied: ${itemId}.`, 'info')]);
+  }
+
+  function onCreateSeasonMentorTicket() {
+    const result = createMentorTicket(season, desktopIdentity);
+    setSeason(result.next);
+    appendLogs([makeLog(`Mentor ticket created: ${result.id}.`, 'success')]);
+  }
+
+  function onMatchSeasonMentor(ticketId: string) {
+    if (!ticketId) return;
+    setSeason((prev) => matchMentor(prev, ticketId, desktopIdentity));
+    appendLogs([makeLog(`Mentor ticket matched: ${ticketId}.`, 'success')]);
+  }
+
   async function onUploadProfilePhoto(file: File) {
     const maxSize = 1_000_000;
     if (file.size > maxSize) {
@@ -697,7 +737,7 @@ export function App() {
       <div className="desktop-wallpaper" />
       <header className="desktop-header">
         <div>
-          <p className="kicker">Aionous OS // Phase 10</p>
+          <p className="kicker">Aionous OS // Phase 11</p>
           <h2>Operator: {desktopIdentity}</h2>
         </div>
         <div className="header-metrics">
@@ -766,6 +806,7 @@ export function App() {
                   activeMatch,
                   blockchain,
                   growth,
+                  season,
                   identity: desktopIdentity,
                   setPlayer,
                   setCooldowns,
@@ -788,6 +829,10 @@ export function App() {
                   onStartGrowthContract,
                   onResolveGrowthContract,
                   onCraftGrowthCommand,
+                  onBuySeasonCosmetic,
+                  onApplySeasonTheme,
+                  onCreateSeasonMentorTicket,
+                  onMatchSeasonMentor,
                   onUploadProfilePhoto
                 })}
               </div>
@@ -838,6 +883,7 @@ type RenderContext = {
   activeMatch: PvpMatchState | null;
   blockchain: BlockchainState;
   growth: GrowthState;
+  season: SeasonState;
   identity: string;
   setPlayer: (state: PlayerState) => void;
   setCooldowns: (cooldowns: Cooldowns) => void;
@@ -860,6 +906,10 @@ type RenderContext = {
   onStartGrowthContract: (contractId: string) => void;
   onResolveGrowthContract: () => void;
   onCraftGrowthCommand: (left: string, right: string, useBoost: boolean) => void;
+  onBuySeasonCosmetic: (itemId: string, price: number) => void;
+  onApplySeasonTheme: (itemId: string) => void;
+  onCreateSeasonMentorTicket: () => void;
+  onMatchSeasonMentor: (ticketId: string) => void;
   onUploadProfilePhoto: (file: File) => void;
 };
 
@@ -944,6 +994,18 @@ function renderWindowContent(id: AppId, ctx: RenderContext) {
           onStartContract={ctx.onStartGrowthContract}
           onResolveContract={ctx.onResolveGrowthContract}
           onCraft={ctx.onCraftGrowthCommand}
+        />
+      );
+    case 'season':
+      return (
+        <SeasonApp
+          season={ctx.season}
+          balance={ctx.player.nops}
+          alias={ctx.identity}
+          onBuyCosmetic={ctx.onBuySeasonCosmetic}
+          onApplyTheme={ctx.onApplySeasonTheme}
+          onCreateMentorTicket={ctx.onCreateSeasonMentorTicket}
+          onMatchMentor={ctx.onMatchSeasonMentor}
         />
       );
     case 'settings':
