@@ -35,3 +35,6 @@ Terminal cosmetics marketplace, seasonal story arcs, and mentor program.
 
 ## Phase 12 — Admin Engine + LiveOps Launch ✅
 Full admin control tower, event controls, chat toggles, abuse prevention tooling, and launch hardening.
+
+## Phase 13 — Stability + UX Modernization ✅
+Boot diagnostics, deploy root-cause guidance, settings controls, accessibility toggles, and UI polish.

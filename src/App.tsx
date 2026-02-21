@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
   User,
   createUserWithEmailAndPassword,
@@ -63,6 +63,7 @@ import {
 } from './game/growth';
 import { SeasonState, applyTheme, buyCosmetic, createMentorTicket, defaultSeasonState, matchMentor } from './game/season';
 import { AdminState, appendAudit, createShopItemTemplate, defaultAdminState, grantCommandWithTrait, upsertPlayerFlag } from './game/admin';
+import { DisplaySettings, clampUiScale, defaultDisplaySettings } from './game/settings';
 
 type AppPhase = 'boot' | 'login' | 'desktop';
 type AppId = 'terminal' | 'market' | 'index' | 'profile' | 'casino' | 'pvp' | 'blockchain' | 'growth' | 'season' | 'admin' | 'settings';
@@ -94,9 +95,10 @@ type PersistedDesktop = {
   growth: GrowthState;
   season: SeasonState;
   admin: AdminState;
+  displaySettings: DisplaySettings;
 };
 
-const STORAGE_KEY = 'aionous.desktop.v3';
+const STORAGE_KEY = 'aionous.desktop.v4';
 const BOOT_MS = 2600;
 const MAX_LOGS = 100;
 
@@ -164,6 +166,7 @@ function readPersisted(): PersistedDesktop {
     growth: defaultGrowthState,
     season: defaultSeasonState,
     admin: defaultAdminState,
+    displaySettings: defaultDisplaySettings,
     logs: [
       makeLog('ROOTACCESS terminal online. Type `help` to list commands.', 'success'),
       makeLog('Mission set: run command loops, then claim mission rewards in Profile.', 'info')
@@ -187,6 +190,7 @@ function readPersisted(): PersistedDesktop {
       growth: parsed.growth ? { ...defaults.growth, ...parsed.growth } : defaults.growth,
       season: parsed.season ? { ...defaults.season, ...parsed.season } : defaults.season,
       admin: parsed.admin ? { ...defaults.admin, ...parsed.admin } : defaults.admin,
+      displaySettings: parsed.displaySettings ? { ...defaults.displaySettings, ...parsed.displaySettings } : defaults.displaySettings,
       logs: Array.isArray(parsed.logs) ? parsed.logs.slice(-MAX_LOGS) : defaults.logs
     };
   } catch {
@@ -212,6 +216,7 @@ export function App() {
   const [growth, setGrowth] = useState<GrowthState>(initial.growth);
   const [season, setSeason] = useState<SeasonState>(initial.season);
   const [admin, setAdmin] = useState<AdminState>(initial.admin);
+  const [displaySettings, setDisplaySettings] = useState<DisplaySettings>(initial.displaySettings);
   const [logs, setLogs] = useState<TerminalLog[]>(initial.logs);
 
   const [email, setEmail] = useState('');
@@ -253,10 +258,11 @@ export function App() {
         growth,
         season,
         admin,
+        displaySettings,
         logs: logs.slice(-MAX_LOGS)
       } satisfies PersistedDesktop)
     );
-  }, [windows, player, cooldowns, progression, shopInventory, retention, casino, ranked, blockchain, growth, season, admin, logs]);
+  }, [windows, player, cooldowns, progression, shopInventory, retention, casino, ranked, blockchain, growth, season, admin, displaySettings, logs]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -822,11 +828,14 @@ export function App() {
   }
 
   return (
-    <main className="desktop-shell phase4-desktop">
+    <main
+      className={`desktop-shell phase4-desktop theme-${displaySettings.theme}${displaySettings.highContrast ? ' theme-high-contrast' : ''}${displaySettings.reducedMotion ? ' reduced-motion' : ''}`}
+      style={{ '--ui-scale': String(clampUiScale(displaySettings.uiScale)) } as CSSProperties}
+    >
       <div className="desktop-wallpaper" />
       <header className="desktop-header">
         <div>
-          <p className="kicker">Aionous OS // Phase 12</p>
+          <p className="kicker">Aionous OS // Phase 13</p>
           <h2>Operator: {desktopIdentity}</h2>
         </div>
         <div className="header-metrics">
@@ -933,7 +942,9 @@ export function App() {
                   onAdminFlagPlayer,
                   onAdminTempBan,
                   onAdminPermBan,
-                  onUploadProfilePhoto
+                  onUploadProfilePhoto,
+                  displaySettings,
+                  onUpdateDisplaySettings: (patch) => setDisplaySettings((prev) => ({ ...prev, ...patch, uiScale: patch.uiScale !== undefined ? clampUiScale(patch.uiScale) : prev.uiScale }))
                 })}
               </div>
             </article>
@@ -944,25 +955,25 @@ export function App() {
         {(Object.keys(appTemplates) as AppId[])
           .filter((id) => (id === 'admin' ? isAdmin : true))
           .map((id) => {
-          const win = windows.find((w) => w.id === id);
-          if (!win) return null;
-          const active = win.isOpen && !win.isMinimized;
-          return (
-            <button
-              key={id}
-              type="button"
-              className={active ? 'active' : ''}
-              onClick={() => {
-                if (active) {
-                  toggleMinimize(id);
-                } else {
-                  openWindow(id);
-                }
-              }}
-            >
-              {win.title}
-            </button>
-          );
+            const win = windows.find((w) => w.id === id);
+            if (!win) return null;
+            const active = win.isOpen && !win.isMinimized;
+            return (
+              <button
+                key={id}
+                type="button"
+                className={active ? 'active' : ''}
+                onClick={() => {
+                  if (active) {
+                    toggleMinimize(id);
+                  } else {
+                    openWindow(id);
+                  }
+                }}
+              >
+                {win.title}
+              </button>
+            );
           })}
       </footer>
     </main>
@@ -1021,7 +1032,9 @@ type RenderContext = {
   onAdminFlagPlayer: (alias: string, note: string) => void;
   onAdminTempBan: (alias: string, hours: number) => void;
   onAdminPermBan: (alias: string) => void;
-  onUploadProfilePhoto: (file: File) => void;
+  onUploadProfilePhoto: (file: File) => Promise<void>;
+  displaySettings: DisplaySettings;
+  onUpdateDisplaySettings: (patch: Partial<DisplaySettings>) => void;
 };
 
 function renderWindowContent(id: AppId, ctx: RenderContext) {
@@ -1138,9 +1151,44 @@ function renderWindowContent(id: AppId, ctx: RenderContext) {
       );
     case 'settings':
       return (
-        <div className="placeholder">
+        <div className="settings-app">
           <h4>System Settings</h4>
-          <p>Display calibration and accessibility controls will land in later phases.</p>
+          <label>
+            Theme Palette
+            <select value={ctx.displaySettings.theme} onChange={(event) => ctx.onUpdateDisplaySettings({ theme: event.target.value as DisplaySettings['theme'] })}>
+              <option value="matrix">Matrix Grid</option>
+              <option value="oasis">Neon Oasis</option>
+              <option value="inferno">Inferno PvP</option>
+            </select>
+          </label>
+          <label>
+            UI Scale: {ctx.displaySettings.uiScale.toFixed(2)}x
+            <input
+              type="range"
+              min={0.85}
+              max={1.2}
+              step={0.01}
+              value={ctx.displaySettings.uiScale}
+              onChange={(event) => ctx.onUpdateDisplaySettings({ uiScale: Number(event.target.value) })}
+            />
+          </label>
+          <label className="inline-toggle">
+            <input
+              type="checkbox"
+              checked={ctx.displaySettings.reducedMotion}
+              onChange={(event) => ctx.onUpdateDisplaySettings({ reducedMotion: event.target.checked })}
+            />
+            Reduced Motion
+          </label>
+          <label className="inline-toggle">
+            <input
+              type="checkbox"
+              checked={ctx.displaySettings.highContrast}
+              onChange={(event) => ctx.onUpdateDisplaySettings({ highContrast: event.target.checked })}
+            />
+            High Contrast
+          </label>
+          <p className="muted">Phase 13 polish: live theme tuning, better readability, and accessibility toggles.</p>
         </div>
       );
     default:

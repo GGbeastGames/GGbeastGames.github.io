@@ -369,3 +369,65 @@ button:hover { background: rgba(57,255,185,.14); }
 @media (max-width: 980px) {
   .admin-grid { grid-template-columns: 1fr; }
 }
+
+.desktop-shell {
+  transform: scale(var(--ui-scale, 1));
+  transform-origin: top center;
+}
+
+.theme-oasis .desktop-wallpaper {
+  background:
+    radial-gradient(circle at 18% 15%, rgba(236, 120, 255, 0.2), transparent 35%),
+    radial-gradient(circle at 77% 12%, rgba(88, 190, 255, 0.2), transparent 35%),
+    linear-gradient(160deg, #130526 12%, #072744 90%);
+}
+
+.theme-inferno .desktop-wallpaper {
+  background:
+    radial-gradient(circle at 16% 18%, rgba(255, 103, 83, 0.26), transparent 32%),
+    radial-gradient(circle at 80% 14%, rgba(255, 176, 89, 0.2), transparent 34%),
+    linear-gradient(170deg, #1c080d 8%, #2b1309 36%, #0b0f1f 100%);
+}
+
+.theme-high-contrast .app-window,
+.theme-high-contrast .taskbar,
+.theme-high-contrast .desktop-header,
+.theme-high-contrast input,
+.theme-high-contrast button {
+  border-color: rgba(130, 255, 214, 0.72) !important;
+}
+
+.settings-app {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.settings-app h4 {
+  margin: 0.1rem 0;
+  color: #7dffd6;
+}
+
+.settings-app label {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.84rem;
+  color: #c8f4e5;
+}
+
+.settings-app .inline-toggle {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.settings-app input[type='range'] {
+  padding: 0;
+}
+
+.reduced-motion *,
+.reduced-motion *::before,
+.reduced-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}

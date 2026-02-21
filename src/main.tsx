@@ -20,6 +20,8 @@ class RootErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundar
   componentDidMount() {
     const fallback = document.getElementById('boot-fallback');
     if (fallback) fallback.classList.add('hidden');
+    (window as Window & { __AIONOUS_MOUNTED?: boolean }).__AIONOUS_MOUNTED = true;
+    window.dispatchEvent(new Event('aionous:mounted'));
   }
 
   render() {

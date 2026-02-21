@@ -6,40 +6,108 @@
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='0.9em' font-size='90'%3E%F0%9F%9B%A1%EF%B8%8F%3C/text%3E%3C/svg%3E" />
     <title>Aionous | RootAccess</title>
     <style>
-      html, body { margin:0; min-height:100%; background:#050b14; color:#dffff4; font-family: Inter, system-ui, sans-serif; }
-      #boot-fallback { display:grid; place-items:center; min-height:100vh; text-align:center; padding:1rem; }
-      #boot-fallback .card { border:1px solid rgba(95,255,205,.35); border-radius:12px; padding:1rem; max-width:720px; background:rgba(4,18,26,.9); }
+      html, body { margin:0; min-height:100%; background:#030915; color:#dffff4; font-family: Inter, system-ui, sans-serif; }
+      #boot-fallback {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+        text-align: center;
+        padding: 1rem;
+        background:
+          radial-gradient(circle at 15% 20%, rgba(72, 245, 199, 0.16), transparent 30%),
+          radial-gradient(circle at 82% 8%, rgba(86, 171, 255, 0.15), transparent 30%),
+          linear-gradient(180deg, #031124 0%, #020913 100%);
+      }
+      #boot-fallback .matrix {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        opacity: .22;
+        pointer-events: none;
+      }
+      #boot-fallback .matrix span {
+        position: absolute;
+        top: -120%;
+        color: #68ffd2;
+        font: 700 11px/1 'JetBrains Mono', monospace;
+        text-shadow: 0 0 8px rgba(104,255,210,.6);
+        animation: rain linear infinite;
+      }
+      @keyframes rain { to { transform: translateY(240vh); } }
+
+      #boot-fallback .card {
+        position: relative;
+        width: min(760px, 92vw);
+        border: 1px solid rgba(95, 255, 205, .35);
+        border-radius: 14px;
+        padding: 1.2rem;
+        background: rgba(4, 18, 26, .88);
+        box-shadow: 0 0 36px rgba(32, 244, 191, 0.15);
+      }
       #boot-fallback.hidden { display:none; }
+      .diag { color: #9ce6d1; font-size: .93rem; }
+      .diag strong { color: #7effce; }
       noscript { color:#ffb3c8; }
     </style>
   </head>
   <body>
-    <div id="boot-fallback">
+    <div id="boot-fallback" aria-live="polite">
+      <div class="matrix" id="boot-matrix" aria-hidden="true"></div>
       <div class="card">
         <h1>ROOTACCESS booting...</h1>
-        <p>If the app does not render, hard refresh and clear cached site data.</p>
-        <p id="fallback-status">Initializing runtime...</p>
+        <p>If this stays on-screen, runtime failed before React mounted.</p>
+        <p id="fallback-status" class="diag">Initializing runtime...</p>
       </div>
     </div>
     <div id="root"></div>
     <noscript>This app requires JavaScript enabled.</noscript>
     <script>
-      window.setTimeout(function () {
-        var root = document.getElementById('root');
+      (function () {
         var status = document.getElementById('fallback-status');
-        if (root && root.childElementCount === 0 && status) {
-          status.textContent = 'Runtime still loading. If this persists, open browser console for errors and verify deploy path.';
-        }
-      }, 4500);
-      window.addEventListener('DOMContentLoaded', function () {
         var fallback = document.getElementById('boot-fallback');
-        if (!fallback) return;
-        window.setTimeout(function () {
-          if (document.getElementById('root')?.childElementCount) {
-            fallback.classList.add('hidden');
+        var matrix = document.getElementById('boot-matrix');
+        var mounted = false;
+
+        function setStatus(text) {
+          if (status) status.innerHTML = text;
+        }
+
+        if (matrix) {
+          var cols = Math.min(80, Math.max(28, Math.floor(window.innerWidth / 24)));
+          var html = '';
+          for (var i = 0; i < cols; i++) {
+            var left = (i / cols) * 100;
+            var delay = -(Math.random() * 8);
+            var duration = (4 + Math.random() * 6).toFixed(2);
+            var stream = Array.from({ length: 28 }, function () { return Math.random() > 0.5 ? '1' : '0'; }).join('<br/>');
+            html += '<span style="left:' + left + '%;animation-duration:' + duration + 's;animation-delay:' + delay + 's">' + stream + '</span>';
           }
-        }, 1500);
-      });
+          matrix.innerHTML = html;
+        }
+
+        window.addEventListener('aionous:mounted', function () {
+          mounted = true;
+          if (fallback) fallback.classList.add('hidden');
+        });
+
+        window.addEventListener('error', function (event) {
+          if (mounted) return;
+          setStatus('<strong>Boot error:</strong> ' + (event.message || 'Unknown script error') + '<br/>Likely cause: GitHub Pages serving source instead of built dist/. Set Pages source to <strong>GitHub Actions</strong>.');
+        });
+
+        window.addEventListener('unhandledrejection', function (event) {
+          if (mounted) return;
+          var reason = event && event.reason ? String(event.reason) : 'Unknown promise rejection';
+          setStatus('<strong>Runtime rejection:</strong> ' + reason + '<br/>Open DevTools console and verify workflow deploy output.');
+        });
+
+        window.setTimeout(function () {
+          if (mounted) return;
+          setStatus('Still waiting for runtime... If URL is your GitHub Pages root, ensure it serves build output (not markdown/source files).');
+        }, 4500);
+      })();
     </script>
     <script type="module" src="./src/main.tsx"></script>
   </body>
