@@ -44,6 +44,7 @@ Build also creates `dist/404.html` + `dist/.nojekyll` for GitHub Pages SPA fallb
 - ✅ Phase 9: Blockchain market + defensive upgrades
 - ✅ Phase 10: Ops/Factions/Crafting/Heat growth systems
 - ✅ Phase 11: Cosmetics, Story Seasons, Mentor system
+- ✅ Phase 12: Admin control tower + LiveOps launch hardening
 
 ## Phase docs
 - `docs/PHASE_01_CHECKLIST.md`
@@ -57,6 +58,7 @@ Build also creates `dist/404.html` + `dist/.nojekyll` for GitHub Pages SPA fallb
 - `docs/PHASE_09_BLOCKCHAIN_MARKET.md`
 - `docs/PHASE_10_GROWTH_SYSTEMS.md`
 - `docs/PHASE_11_SEASONS_COSMETICS_MENTOR.md`
+- `docs/PHASE_12_ADMIN_LIVEOPS.md`
 - `docs/ASSET_PIPELINE.md`
 - `docs/ARCHITECTURE.md`
 - `docs/ECONOMY_BASELINE.md`

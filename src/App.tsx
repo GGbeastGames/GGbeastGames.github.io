@@ -14,11 +14,21 @@ import { BlockchainApp } from './components/apps/BlockchainApp';
 import { CasinoApp } from './components/apps/CasinoApp';
 import { GrowthApp } from './components/apps/GrowthApp';
 import { IndexApp } from './components/apps/IndexApp';
+import { AdminApp } from './components/apps/AdminApp';
 import { SeasonApp } from './components/apps/SeasonApp';
 import { PvpApp } from './components/apps/PvpApp';
 import { ProfileApp } from './components/apps/ProfileApp';
 import { TerminalApp } from './components/apps/TerminalApp';
-import { Cooldowns, PlayerState, TerminalLog, defaultCooldowns, defaultPlayerState, getSuccessRate, passiveTraceDecay } from './game/terminal';
+import {
+  BaseCommandId,
+  Cooldowns,
+  PlayerState,
+  TerminalLog,
+  defaultCooldowns,
+  defaultPlayerState,
+  getSuccessRate,
+  passiveTraceDecay
+} from './game/terminal';
 import {
   ProgressionState,
   ShopItem,
@@ -52,9 +62,10 @@ import {
   startContract
 } from './game/growth';
 import { SeasonState, applyTheme, buyCosmetic, createMentorTicket, defaultSeasonState, matchMentor } from './game/season';
+import { AdminState, appendAudit, createShopItemTemplate, defaultAdminState, grantCommandWithTrait, upsertPlayerFlag } from './game/admin';
 
 type AppPhase = 'boot' | 'login' | 'desktop';
-type AppId = 'terminal' | 'market' | 'index' | 'profile' | 'casino' | 'pvp' | 'blockchain' | 'growth' | 'season' | 'settings';
+type AppId = 'terminal' | 'market' | 'index' | 'profile' | 'casino' | 'pvp' | 'blockchain' | 'growth' | 'season' | 'admin' | 'settings';
 
 type WindowState = {
   id: AppId;
@@ -82,6 +93,7 @@ type PersistedDesktop = {
   blockchain: BlockchainState;
   growth: GrowthState;
   season: SeasonState;
+  admin: AdminState;
 };
 
 const STORAGE_KEY = 'aionous.desktop.v3';
@@ -98,6 +110,7 @@ const appTemplates: Record<AppId, Omit<WindowState, 'isOpen' | 'isMinimized' | '
   blockchain: { id: 'blockchain', title: 'Blockchain', x: 260, y: 70, width: 640, height: 420 },
   growth: { id: 'growth', title: 'Growth Hub', x: 230, y: 95, width: 700, height: 430 },
   season: { id: 'season', title: 'Season Hub', x: 250, y: 85, width: 720, height: 430 },
+  admin: { id: 'admin', title: 'Admin', x: 180, y: 70, width: 760, height: 460 },
   settings: { id: 'settings', title: 'Settings', x: 800, y: 250, width: 350, height: 240 }
 };
 
@@ -150,6 +163,7 @@ function readPersisted(): PersistedDesktop {
     blockchain: defaultBlockchainState,
     growth: defaultGrowthState,
     season: defaultSeasonState,
+    admin: defaultAdminState,
     logs: [
       makeLog('ROOTACCESS terminal online. Type `help` to list commands.', 'success'),
       makeLog('Mission set: run command loops, then claim mission rewards in Profile.', 'info')
@@ -172,6 +186,7 @@ function readPersisted(): PersistedDesktop {
       blockchain: parsed.blockchain ? { ...defaults.blockchain, ...parsed.blockchain } : defaults.blockchain,
       growth: parsed.growth ? { ...defaults.growth, ...parsed.growth } : defaults.growth,
       season: parsed.season ? { ...defaults.season, ...parsed.season } : defaults.season,
+      admin: parsed.admin ? { ...defaults.admin, ...parsed.admin } : defaults.admin,
       logs: Array.isArray(parsed.logs) ? parsed.logs.slice(-MAX_LOGS) : defaults.logs
     };
   } catch {
@@ -186,7 +201,7 @@ export function App() {
   const [player, setPlayer] = useState<PlayerState>(initial.player);
   const [cooldowns, setCooldowns] = useState<Cooldowns>(initial.cooldowns);
   const [progression, setProgression] = useState<ProgressionState>(initial.progression);
-  const [shopInventory] = useState<ShopItem[]>(initial.shopInventory);
+  const [shopInventory, setShopInventory] = useState<ShopItem[]>(initial.shopInventory);
   const [retention, setRetention] = useState<RetentionState>(initial.retention);
   const [casino, setCasino] = useState<CasinoState>(initial.casino);
   const [ranked, setRanked] = useState<RankedState>(initial.ranked);
@@ -196,6 +211,7 @@ export function App() {
   const [blockchain, setBlockchain] = useState<BlockchainState>(initial.blockchain);
   const [growth, setGrowth] = useState<GrowthState>(initial.growth);
   const [season, setSeason] = useState<SeasonState>(initial.season);
+  const [admin, setAdmin] = useState<AdminState>(initial.admin);
   const [logs, setLogs] = useState<TerminalLog[]>(initial.logs);
 
   const [email, setEmail] = useState('');
@@ -236,10 +252,11 @@ export function App() {
         blockchain,
         growth,
         season,
+        admin,
         logs: logs.slice(-MAX_LOGS)
       } satisfies PersistedDesktop)
     );
-  }, [windows, player, cooldowns, progression, shopInventory, retention, casino, ranked, blockchain, growth, season, logs]);
+  }, [windows, player, cooldowns, progression, shopInventory, retention, casino, ranked, blockchain, growth, season, admin, logs]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -311,6 +328,16 @@ export function App() {
   }, []);
 
   const desktopIdentity = useMemo(() => (guestMode ? 'Guest Operator' : user?.email ?? 'Anonymous'), [guestMode, user]);
+  const isAdmin = useMemo(() => {
+    const adminEmails = String(import.meta.env.VITE_ADMIN_EMAILS ?? '');
+    const allow = adminEmails
+      .split(',')
+      .map((item: string) => item.trim().toLowerCase())
+      .filter(Boolean);
+    const email = user?.email?.toLowerCase() ?? '';
+    const override = localStorage.getItem('aionous.admin') === 'true';
+    return override || (!!email && allow.includes(email));
+  }, [user]);
   const topZ = useMemo(() => Math.max(...windows.map((windowItem) => windowItem.z), 0), [windows]);
   const successRate = useMemo(() => Math.round(getSuccessRate(player) * 100), [player]);
   const ownedCommandKeys = useMemo(() => getOwnedCommandKeys(progression.ownedCommands), [progression.ownedCommands]);
@@ -580,6 +607,67 @@ export function App() {
     appendLogs([makeLog(`Mentor ticket matched: ${ticketId}.`, 'success')]);
   }
 
+  function onAdminSetBanner(text: string) {
+    setAdmin((prev) => appendAudit({ ...prev, globalBanner: text }, desktopIdentity, 'set_banner', text || '<clear>'));
+    appendLogs([makeLog(`Admin banner ${text ? 'updated' : 'cleared'}.`, 'success')]);
+  }
+
+  function onAdminToggleFeature(key: 'chatOpen' | 'pollsEnabled') {
+    setAdmin((prev) => {
+      const next = {
+        ...prev,
+        featureToggles: { ...prev.featureToggles, [key]: !prev.featureToggles[key] }
+      };
+      return appendAudit(next, desktopIdentity, 'toggle_feature', `${key}=${next.featureToggles[key]}`);
+    });
+  }
+
+  function onAdminGrantCommand(command: BaseCommandId, withTrait: boolean) {
+    const trait = withTrait ? 'spring' : null;
+    const commandKey = grantCommandWithTrait(command, trait);
+    setProgression((prev) => ({
+      ...prev,
+      ownedCommands: [
+        ...prev.ownedCommands,
+        {
+          instanceId: `admin-${commandKey}-${Date.now()}`,
+          baseId: command,
+          trait,
+          unlockedAt: Date.now(),
+          source: 'admin'
+        }
+      ]
+    }));
+    setAdmin((prev) => appendAudit(prev, desktopIdentity, 'grant_command', commandKey));
+    appendLogs([makeLog(`Admin granted command: ${commandKey}.`, 'success')]);
+  }
+
+  function onAdminAddShopItem(command: BaseCommandId, limited: boolean) {
+    const item = createShopItemTemplate(command, Math.floor(Math.random() * 9) + 1, limited);
+    setShopInventory((prev) => [item, ...prev]);
+    setAdmin((prev) => appendAudit(prev, desktopIdentity, 'shop_item_create', item.id));
+    appendLogs([makeLog(`Admin created shop item ${item.id}.`, 'success')]);
+  }
+
+  function onAdminFlagPlayer(alias: string, note: string) {
+    setAdmin((prev) => appendAudit(upsertPlayerFlag(prev, alias, { flagged: true, note }), desktopIdentity, 'flag_player', alias));
+  }
+
+  function onAdminTempBan(alias: string, hours: number) {
+    setAdmin((prev) =>
+      appendAudit(
+        upsertPlayerFlag(prev, alias, { tempBanUntil: Date.now() + hours * 3600_000, flagged: true }),
+        desktopIdentity,
+        'temp_ban',
+        `${alias} ${hours}h`
+      )
+    );
+  }
+
+  function onAdminPermBan(alias: string) {
+    setAdmin((prev) => appendAudit(upsertPlayerFlag(prev, alias, { permBanned: true, flagged: true }), desktopIdentity, 'perm_ban', alias));
+  }
+
   async function onUploadProfilePhoto(file: File) {
     const maxSize = 1_000_000;
     if (file.size > maxSize) {
@@ -666,6 +754,7 @@ export function App() {
   if (phase === 'boot') {
     return (
       <main className="boot-screen">
+        <div className="matrix-rain" aria-hidden="true" />
         <div className="boot-overlay" />
         <div className="boot-content">
           <p>ROOTACCESS // BOOTING NEURAL GRID</p>
@@ -737,7 +826,7 @@ export function App() {
       <div className="desktop-wallpaper" />
       <header className="desktop-header">
         <div>
-          <p className="kicker">Aionous OS // Phase 11</p>
+          <p className="kicker">Aionous OS // Phase 12</p>
           <h2>Operator: {desktopIdentity}</h2>
         </div>
         <div className="header-metrics">
@@ -752,6 +841,8 @@ export function App() {
           Sign Out
         </button>
       </header>
+
+      {admin.globalBanner ? <div className="global-banner">{admin.globalBanner}</div> : null}
 
       <section className="window-layer">
         {windows
@@ -807,6 +898,8 @@ export function App() {
                   blockchain,
                   growth,
                   season,
+                  admin,
+                  isAdmin,
                   identity: desktopIdentity,
                   setPlayer,
                   setCooldowns,
@@ -833,6 +926,13 @@ export function App() {
                   onApplySeasonTheme,
                   onCreateSeasonMentorTicket,
                   onMatchSeasonMentor,
+                  onAdminSetBanner,
+                  onAdminToggleFeature,
+                  onAdminGrantCommand,
+                  onAdminAddShopItem,
+                  onAdminFlagPlayer,
+                  onAdminTempBan,
+                  onAdminPermBan,
                   onUploadProfilePhoto
                 })}
               </div>
@@ -841,7 +941,9 @@ export function App() {
       </section>
 
       <footer className="taskbar">
-        {(Object.keys(appTemplates) as AppId[]).map((id) => {
+        {(Object.keys(appTemplates) as AppId[])
+          .filter((id) => (id === 'admin' ? isAdmin : true))
+          .map((id) => {
           const win = windows.find((w) => w.id === id);
           if (!win) return null;
           const active = win.isOpen && !win.isMinimized;
@@ -861,7 +963,7 @@ export function App() {
               {win.title}
             </button>
           );
-        })}
+          })}
       </footer>
     </main>
   );
@@ -884,6 +986,8 @@ type RenderContext = {
   blockchain: BlockchainState;
   growth: GrowthState;
   season: SeasonState;
+  admin: AdminState;
+  isAdmin: boolean;
   identity: string;
   setPlayer: (state: PlayerState) => void;
   setCooldowns: (cooldowns: Cooldowns) => void;
@@ -910,6 +1014,13 @@ type RenderContext = {
   onApplySeasonTheme: (itemId: string) => void;
   onCreateSeasonMentorTicket: () => void;
   onMatchSeasonMentor: (ticketId: string) => void;
+  onAdminSetBanner: (text: string) => void;
+  onAdminToggleFeature: (key: 'chatOpen' | 'pollsEnabled') => void;
+  onAdminGrantCommand: (command: BaseCommandId, withTrait: boolean) => void;
+  onAdminAddShopItem: (command: BaseCommandId, limited: boolean) => void;
+  onAdminFlagPlayer: (alias: string, note: string) => void;
+  onAdminTempBan: (alias: string, hours: number) => void;
+  onAdminPermBan: (alias: string) => void;
   onUploadProfilePhoto: (file: File) => void;
 };
 
@@ -1006,6 +1117,23 @@ function renderWindowContent(id: AppId, ctx: RenderContext) {
           onApplyTheme={ctx.onApplySeasonTheme}
           onCreateMentorTicket={ctx.onCreateSeasonMentorTicket}
           onMatchMentor={ctx.onMatchSeasonMentor}
+        />
+      );
+    case 'admin':
+      if (!ctx.isAdmin) {
+        return <div className="placeholder"><h4>Access denied</h4><p>Admin claim required.</p></div>;
+      }
+      return (
+        <AdminApp
+          actor={ctx.identity}
+          admin={ctx.admin}
+          onSetBanner={ctx.onAdminSetBanner}
+          onToggleFeature={ctx.onAdminToggleFeature}
+          onGrantCommand={ctx.onAdminGrantCommand}
+          onAddShopItem={ctx.onAdminAddShopItem}
+          onFlagPlayer={ctx.onAdminFlagPlayer}
+          onTempBanPlayer={ctx.onAdminTempBan}
+          onPermBanPlayer={ctx.onAdminPermBan}
         />
       );
     case 'settings':

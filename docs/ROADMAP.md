@@ -33,5 +33,5 @@ Ops Contracts, Factions, Command Crafting, and Heat/Notoriety.
 ## Phase 11 — Growth Systems E-G ✅
 Terminal cosmetics marketplace, seasonal story arcs, and mentor program.
 
-## Phase 12 — Admin Engine + LiveOps Launch
+## Phase 12 — Admin Engine + LiveOps Launch ✅
 Full admin control tower, event controls, chat toggles, abuse prevention tooling, and launch hardening.
