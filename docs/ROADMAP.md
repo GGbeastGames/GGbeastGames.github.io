@@ -9,7 +9,7 @@ Neon cyberpunk design tokens, reusable panels, typography, and asset pipeline fr
 ## Phase 03 — Login + Desktop OS ✅
 Boot cutscene, Firebase auth, desktop shell, draggable window framework, and session restore.
 
-## Phase 04 — Terminal Core Loop
+## Phase 04 — Terminal Core Loop ✅
 Command parser and execution for `phish`, `scan`, `spoof` with cooldowns, rewards, penalties.
 
 ## Phase 05 — Black Market + Index + Traits

@@ -31,11 +31,13 @@ npm run build
 - ✅ Phase 1: Foundation
 - ✅ Phase 2: Visual Identity + Asset Pipeline
 - ✅ Phase 3: Boot/Login/Desktop OS shell
+- ✅ Phase 4: Terminal command loop (phish / scan / spoof)
 
 ## Phase docs
 - `docs/PHASE_01_CHECKLIST.md`
 - `docs/PHASE_02_VISUAL_SYSTEM.md`
 - `docs/PHASE_03_DESKTOP_AUTH.md`
+- `docs/PHASE_04_TERMINAL_CORE.md`
 - `docs/ASSET_PIPELINE.md`
 - `docs/ARCHITECTURE.md`
 - `docs/ECONOMY_BASELINE.md`

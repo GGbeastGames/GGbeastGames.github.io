@@ -7,6 +7,8 @@ import {
   signOut
 } from 'firebase/auth';
 import { auth } from './config/firebase';
+import { TerminalApp } from './components/apps/TerminalApp';
+import { Cooldowns, PlayerState, TerminalLog, defaultCooldowns, defaultPlayerState, getSuccessRate, passiveTraceDecay } from './game/terminal';
 
 type AppPhase = 'boot' | 'login' | 'desktop';
 type AppId = 'terminal' | 'market' | 'index' | 'profile' | 'settings';
@@ -20,48 +22,82 @@ type WindowState = {
   height: number;
   isOpen: boolean;
   isMinimized: boolean;
+  isMaximized: boolean;
   z: number;
 };
 
 type PersistedDesktop = {
   windows: WindowState[];
+  player: PlayerState;
+  cooldowns: Cooldowns;
+  logs: TerminalLog[];
 };
 
-const STORAGE_KEY = 'aionous.desktop.v1';
+const STORAGE_KEY = 'aionous.desktop.v2';
 const BOOT_MS = 2600;
+const MAX_LOGS = 80;
 
-const appTemplates: Record<AppId, Omit<WindowState, 'isOpen' | 'isMinimized' | 'z'>> = {
-  terminal: { id: 'terminal', title: 'Terminal', x: 72, y: 84, width: 520, height: 360 },
-  market: { id: 'market', title: 'Black Market', x: 170, y: 130, width: 460, height: 290 },
-  index: { id: 'index', title: 'Index', x: 220, y: 176, width: 420, height: 280 },
-  profile: { id: 'profile', title: 'Profile', x: 300, y: 108, width: 390, height: 310 },
-  settings: { id: 'settings', title: 'Settings', x: 380, y: 150, width: 360, height: 250 }
+const appTemplates: Record<AppId, Omit<WindowState, 'isOpen' | 'isMinimized' | 'isMaximized' | 'z'>> = {
+  terminal: { id: 'terminal', title: 'Terminal', x: 50, y: 90, width: 700, height: 460 },
+  market: { id: 'market', title: 'Black Market', x: 190, y: 120, width: 500, height: 320 },
+  index: { id: 'index', title: 'Index', x: 300, y: 180, width: 460, height: 300 },
+  profile: { id: 'profile', title: 'Profile', x: 760, y: 100, width: 360, height: 360 },
+  settings: { id: 'settings', title: 'Settings', x: 800, y: 250, width: 350, height: 240 }
 };
 
 function seedWindows(): WindowState[] {
   return (Object.keys(appTemplates) as AppId[]).map((id, i) => ({
     ...appTemplates[id],
-    isOpen: id === 'terminal',
+    isOpen: id === 'terminal' || id === 'profile',
     isMinimized: false,
+    isMaximized: false,
     z: i + 1
   }));
 }
 
-function readPersistedWindows(): WindowState[] {
+function makeLog(text: string, tone: TerminalLog['tone'] = 'info'): TerminalLog {
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    ts: Date.now(),
+    text,
+    tone
+  };
+}
+
+function readPersisted(): PersistedDesktop {
+  const defaults: PersistedDesktop = {
+    windows: seedWindows(),
+    player: defaultPlayerState,
+    cooldowns: defaultCooldowns,
+    logs: [
+      makeLog('ROOTACCESS terminal online. Type `help` to list commands.', 'success'),
+      makeLog('Mission set: run phish / scan / spoof to earn Ø.', 'info')
+    ]
+  };
+
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return seedWindows();
-    const parsed = JSON.parse(raw) as PersistedDesktop;
-    if (!Array.isArray(parsed.windows)) return seedWindows();
-    return parsed.windows;
+    if (!raw) return defaults;
+    const parsed = JSON.parse(raw) as Partial<PersistedDesktop>;
+    return {
+      windows: Array.isArray(parsed.windows) ? parsed.windows : defaults.windows,
+      player: parsed.player ? { ...defaults.player, ...parsed.player } : defaults.player,
+      cooldowns: parsed.cooldowns ? { ...defaults.cooldowns, ...parsed.cooldowns } : defaults.cooldowns,
+      logs: Array.isArray(parsed.logs) ? parsed.logs.slice(-MAX_LOGS) : defaults.logs
+    };
   } catch {
-    return seedWindows();
+    return defaults;
   }
 }
 
 export function App() {
   const [phase, setPhase] = useState<AppPhase>('boot');
-  const [windows, setWindows] = useState<WindowState[]>(() => readPersistedWindows());
+  const initial = useMemo(() => readPersisted(), []);
+  const [windows, setWindows] = useState<WindowState[]>(initial.windows);
+  const [player, setPlayer] = useState<PlayerState>(initial.player);
+  const [cooldowns, setCooldowns] = useState<Cooldowns>(initial.cooldowns);
+  const [logs, setLogs] = useState<TerminalLog[]>(initial.logs);
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
@@ -80,34 +116,46 @@ export function App() {
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (nextUser) => {
       setUser(nextUser);
-      if (nextUser) {
-        setPhase('desktop');
-      }
+      if (nextUser) setPhase('desktop');
     });
-
     return () => unsub();
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ windows } satisfies PersistedDesktop));
-  }, [windows]);
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        windows,
+        player,
+        cooldowns,
+        logs: logs.slice(-MAX_LOGS)
+      } satisfies PersistedDesktop)
+    );
+  }, [windows, player, cooldowns, logs]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setPlayer((prev) => passiveTraceDecay(prev));
+    }, 5_000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const onMove = (event: MouseEvent) => {
       if (!dragRef.current) return;
       const { id, offsetX, offsetY } = dragRef.current;
-      const maxX = Math.max(window.innerWidth - 240, 16);
-      const maxY = Math.max(window.innerHeight - 200, 16);
+      const maxX = Math.max(window.innerWidth - 240, 12);
+      const maxY = Math.max(window.innerHeight - 210, 48);
 
       setWindows((prev) =>
-        prev.map((windowItem) =>
-          windowItem.id === id
+        prev.map((w) =>
+          w.id === id && !w.isMaximized
             ? {
-                ...windowItem,
-                x: Math.min(Math.max(16, event.clientX - offsetX), maxX),
+                ...w,
+                x: Math.min(Math.max(12, event.clientX - offsetX), maxX),
                 y: Math.min(Math.max(48, event.clientY - offsetY), maxY)
               }
-            : windowItem
+            : w
         )
       );
     };
@@ -118,19 +166,19 @@ export function App() {
 
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
-
     return () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
   }, []);
 
-  const desktopIdentity = useMemo(() => {
-    if (guestMode) return 'Guest Operator';
-    return user?.email ?? 'Anonymous';
-  }, [guestMode, user]);
-
+  const desktopIdentity = useMemo(() => (guestMode ? 'Guest Operator' : user?.email ?? 'Anonymous'), [guestMode, user]);
   const topZ = useMemo(() => Math.max(...windows.map((windowItem) => windowItem.z), 0), [windows]);
+  const successRate = useMemo(() => Math.round(getSuccessRate(player) * 100), [player]);
+
+  function appendLogs(nextLogs: TerminalLog[]) {
+    setLogs((prev) => [...prev, ...nextLogs].slice(-MAX_LOGS));
+  }
 
   function bringToFront(id: AppId) {
     setWindows((prev) => prev.map((w) => (w.id === id ? { ...w, z: topZ + 1 } : w)));
@@ -138,21 +186,12 @@ export function App() {
 
   function openWindow(id: AppId) {
     setWindows((prev) =>
-      prev.map((w) =>
-        w.id === id
-          ? {
-              ...w,
-              isOpen: true,
-              isMinimized: false,
-              z: topZ + 1
-            }
-          : w
-      )
+      prev.map((w) => (w.id === id ? { ...w, isOpen: true, isMinimized: false, z: topZ + 1 } : w))
     );
   }
 
   function closeWindow(id: AppId) {
-    setWindows((prev) => prev.map((w) => (w.id === id ? { ...w, isOpen: false } : w)));
+    setWindows((prev) => prev.map((w) => (w.id === id ? { ...w, isOpen: false, isMinimized: false } : w)));
   }
 
   function toggleMinimize(id: AppId) {
@@ -162,10 +201,17 @@ export function App() {
           ? {
               ...w,
               isMinimized: !w.isMinimized,
+              isMaximized: false,
               z: !w.isMinimized ? w.z : topZ + 1
             }
           : w
       )
+    );
+  }
+
+  function toggleMaximize(id: AppId) {
+    setWindows((prev) =>
+      prev.map((w) => (w.id === id ? { ...w, isMaximized: !w.isMaximized, isMinimized: false, z: topZ + 1 } : w))
     );
   }
 
@@ -182,8 +228,7 @@ export function App() {
       }
       setPhase('desktop');
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Authentication failed';
-      setAuthError(message);
+      setAuthError(error instanceof Error ? error.message : 'Authentication failed');
     } finally {
       setAuthLoading(false);
     }
@@ -211,10 +256,10 @@ export function App() {
   if (phase === 'login') {
     return (
       <main className="login-screen">
-        <section className="login-card">
+        <section className="login-card phase4">
           <p className="kicker">ACCESS TERMINAL</p>
           <h1>Neural Link Login</h1>
-          <p className="muted">Sign in with Firebase auth, or enter as guest for local prototype mode.</p>
+          <p className="muted">Authenticate with Firebase or enter Guest mode for local-only prototype sessions.</p>
 
           <form onSubmit={onSubmitAuth} className="auth-form">
             <label>
@@ -244,7 +289,7 @@ export function App() {
           </form>
 
           <div className="login-actions">
-            <button type="button" onClick={() => setAuthMode((p) => (p === 'signin' ? 'signup' : 'signin'))}>
+            <button type="button" onClick={() => setAuthMode((prev) => (prev === 'signin' ? 'signup' : 'signin'))}>
               Switch to {authMode === 'signin' ? 'Create Account' : 'Sign In'}
             </button>
             <button
@@ -265,13 +310,17 @@ export function App() {
   }
 
   return (
-    <main className="desktop-shell">
+    <main className="desktop-shell phase4-desktop">
       <div className="desktop-wallpaper" />
-
       <header className="desktop-header">
         <div>
-          <p className="kicker">Aionous OS // Phase 3</p>
+          <p className="kicker">Aionous OS // Phase 4</p>
           <h2>Operator: {desktopIdentity}</h2>
+        </div>
+        <div className="header-metrics">
+          <span>Balance: {player.nops} Ø</span>
+          <span>Trace: {player.trace}%</span>
+          <span>Win rate: {successRate}%</span>
         </div>
         <button type="button" onClick={handleSignOut} className="danger">
           Sign Out
@@ -280,44 +329,41 @@ export function App() {
 
       <section className="window-layer">
         {windows
-          .filter((windowItem) => windowItem.isOpen && !windowItem.isMinimized)
+          .filter((w) => w.isOpen && !w.isMinimized)
           .sort((a, b) => a.z - b.z)
-          .map((windowItem) => (
+          .map((w) => (
             <article
-              key={windowItem.id}
+              key={w.id}
               className="app-window"
-              style={{
-                top: windowItem.y,
-                left: windowItem.x,
-                width: windowItem.width,
-                height: windowItem.height,
-                zIndex: windowItem.z
-              }}
-              onMouseDown={() => bringToFront(windowItem.id)}
+              style={
+                w.isMaximized
+                  ? { top: 52, left: 8, width: 'calc(100vw - 16px)', height: 'calc(100vh - 116px)', zIndex: w.z }
+                  : { top: w.y, left: w.x, width: w.width, height: w.height, zIndex: w.z }
+              }
+              onMouseDown={() => bringToFront(w.id)}
             >
               <header
                 className="window-bar"
                 onMouseDown={(event) => {
-                  dragRef.current = {
-                    id: windowItem.id,
-                    offsetX: event.clientX - windowItem.x,
-                    offsetY: event.clientY - windowItem.y
-                  };
-                  bringToFront(windowItem.id);
+                  if (w.isMaximized) return;
+                  dragRef.current = { id: w.id, offsetX: event.clientX - w.x, offsetY: event.clientY - w.y };
+                  bringToFront(w.id);
                 }}
               >
-                <p>{windowItem.title}</p>
+                <p>{w.title}</p>
                 <div className="window-buttons">
-                  <button type="button" onClick={() => toggleMinimize(windowItem.id)}>
+                  <button type="button" onClick={() => toggleMinimize(w.id)} title="Minimize">
                     _
                   </button>
-                  <button type="button" onClick={() => closeWindow(windowItem.id)}>
+                  <button type="button" onClick={() => toggleMaximize(w.id)} title="Maximize">
+                    □
+                  </button>
+                  <button type="button" onClick={() => closeWindow(w.id)} title="Close">
                     ×
                   </button>
                 </div>
               </header>
-
-              <div className="window-content">{renderWindowContent(windowItem.id)}</div>
+              <div className="window-content">{renderWindowContent(w.id, { player, cooldowns, logs, setPlayer, setCooldowns, appendLogs, setLogs })}</div>
             </article>
           ))}
       </section>
@@ -327,18 +373,17 @@ export function App() {
           const win = windows.find((w) => w.id === id);
           if (!win) return null;
           const active = win.isOpen && !win.isMinimized;
-
           return (
             <button
               key={id}
               type="button"
               className={active ? 'active' : ''}
               onClick={() => {
-                if (win.isOpen && !win.isMinimized) {
+                if (active) {
                   toggleMinimize(id);
-                  return;
+                } else {
+                  openWindow(id);
                 }
-                openWindow(id);
               }}
             >
               {win.title}
@@ -350,24 +395,67 @@ export function App() {
   );
 }
 
-function renderWindowContent(id: AppId) {
+type RenderContext = {
+  player: PlayerState;
+  cooldowns: Cooldowns;
+  logs: TerminalLog[];
+  setPlayer: (state: PlayerState) => void;
+  setCooldowns: (cooldowns: Cooldowns) => void;
+  appendLogs: (logs: TerminalLog[]) => void;
+  setLogs: (next: TerminalLog[]) => void;
+};
+
+function renderWindowContent(id: AppId, ctx: RenderContext) {
   switch (id) {
     case 'terminal':
       return (
-        <div>
-          <p>&gt; boot sequence complete.</p>
-          <p>&gt; command channel ready.</p>
-          <p>&gt; use <strong>phish</strong> in phase 4 terminal engine.</p>
-        </div>
+        <TerminalApp
+          player={ctx.player}
+          cooldowns={ctx.cooldowns}
+          logs={ctx.logs}
+          onUpdate={(state, nextCooldowns, appendedLogs) => {
+            ctx.setPlayer(state);
+            ctx.setCooldowns(nextCooldowns);
+            ctx.appendLogs(appendedLogs);
+          }}
+          onClearLogs={() => ctx.setLogs([makeLog('Terminal log cleared.', 'info')])}
+        />
       );
     case 'market':
-      return <p>Black Market catalog will unlock in phase 5.</p>;
+      return (
+        <div className="placeholder">
+          <h4>Black Market (Phase 5)</h4>
+          <p>Command lessons and software unlocks come next phase. Keep farming Ø in Terminal.</p>
+        </div>
+      );
     case 'index':
-      return <p>Command inventory and locked unlocks will appear here.</p>;
+      return (
+        <div className="placeholder">
+          <h4>Command Index</h4>
+          <p>Owned commands: phish, scan, spoof</p>
+          <p>Upcoming: trait commands and limited drops.</p>
+        </div>
+      );
     case 'profile':
-      return <p>Profile stats, badges, and progression UI are planned for phase 6.</p>;
+      return (
+        <div className="profile-metrics">
+          <h4>Operator Progress</h4>
+          <p>Balance: {ctx.player.nops} Ø</p>
+          <p>Level: {ctx.player.level}</p>
+          <p>XP: {ctx.player.xp}</p>
+          <p>Trace: {ctx.player.trace}%</p>
+          <p>
+            Success Rate: {Math.round(getSuccessRate(ctx.player) * 100)}% ({ctx.player.totalSuccess}/{ctx.player.totalRuns})
+          </p>
+        </div>
+      );
     case 'settings':
-      return <p>System audio, glow intensity, and accessibility toggles coming soon.</p>;
+      return (
+        <div className="placeholder">
+          <h4>System Settings</h4>
+          <p>Display calibration and accessibility controls will land in later phases.</p>
+        </div>
+      );
     default:
       return null;
   }
