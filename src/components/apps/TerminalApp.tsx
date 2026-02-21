@@ -1,12 +1,18 @@
 import { FormEvent, useMemo, useState } from 'react';
-import { Cooldowns, PlayerState, TerminalLog, baseCommandSpecs, executeCommand, getCooldownLeft } from '../../game/terminal';
+import { Cooldowns, PlayerState, TerminalLog, baseCommandSpecs, executeCommand, getCooldownLeft, getSuccessRate } from '../../game/terminal';
+
+type CommandExecutionMeta = {
+  commandKey: string;
+  payout: number;
+  success: boolean;
+};
 
 type TerminalAppProps = {
   player: PlayerState;
   cooldowns: Cooldowns;
   logs: TerminalLog[];
   ownedCommandKeys: string[];
-  onUpdate: (state: PlayerState, cooldowns: Cooldowns, appendedLogs: TerminalLog[]) => void;
+  onUpdate: (state: PlayerState, cooldowns: Cooldowns, appendedLogs: TerminalLog[], meta?: CommandExecutionMeta) => void;
   onClearLogs: () => void;
 };
 
@@ -20,7 +26,7 @@ export function TerminalApp({ player, cooldowns, logs, ownedCommandKeys, onUpdat
       { label: 'Balance', value: `${player.nops} Ø` },
       { label: 'Trace', value: `${player.trace}%` },
       { label: 'Level', value: `${player.level}` },
-      { label: 'XP', value: `${player.xp}` }
+      { label: 'Win', value: `${Math.round(getSuccessRate(player) * 100)}%` }
     ],
     [player]
   );
@@ -60,8 +66,12 @@ export function TerminalApp({ player, cooldowns, logs, ownedCommandKeys, onUpdat
     }
 
     if (ownedCommandKeys.includes(normalized)) {
+      const prevNops = player.nops;
+      const prevSuccess = player.totalSuccess;
       const result = executeCommand(normalized, player, cooldowns, ownedCommandKeys);
-      onUpdate(result.state, result.cooldowns, result.logs);
+      const payout = Math.max(0, result.state.nops - prevNops);
+      const success = result.state.totalSuccess > prevSuccess;
+      onUpdate(result.state, result.cooldowns, result.logs, { commandKey: normalized, payout, success });
       setInput('');
       return;
     }

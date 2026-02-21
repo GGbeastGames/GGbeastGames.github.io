@@ -6,9 +6,11 @@ import {
   signInWithEmailAndPassword,
   signOut
 } from 'firebase/auth';
-import { auth } from './config/firebase';
+import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { auth, storage } from './config/firebase';
 import { BlackMarketApp } from './components/apps/BlackMarketApp';
 import { IndexApp } from './components/apps/IndexApp';
+import { ProfileApp } from './components/apps/ProfileApp';
 import { TerminalApp } from './components/apps/TerminalApp';
 import { Cooldowns, PlayerState, TerminalLog, defaultCooldowns, defaultPlayerState, getSuccessRate, passiveTraceDecay } from './game/terminal';
 import {
@@ -22,6 +24,7 @@ import {
   randomTraitRoll,
   toCommandKey
 } from './game/progression';
+import { RetentionState, applyActivity, applyDailyReset, claimDailyStreak, claimMissionReward, defaultRetentionState } from './game/retention';
 
 type AppPhase = 'boot' | 'login' | 'desktop';
 type AppId = 'terminal' | 'market' | 'index' | 'profile' | 'settings';
@@ -46,17 +49,18 @@ type PersistedDesktop = {
   logs: TerminalLog[];
   progression: ProgressionState;
   shopInventory: ShopItem[];
+  retention: RetentionState;
 };
 
-const STORAGE_KEY = 'aionous.desktop.v2';
+const STORAGE_KEY = 'aionous.desktop.v3';
 const BOOT_MS = 2600;
-const MAX_LOGS = 80;
+const MAX_LOGS = 100;
 
 const appTemplates: Record<AppId, Omit<WindowState, 'isOpen' | 'isMinimized' | 'isMaximized' | 'z'>> = {
   terminal: { id: 'terminal', title: 'Terminal', x: 50, y: 90, width: 700, height: 460 },
-  market: { id: 'market', title: 'Black Market', x: 190, y: 120, width: 500, height: 320 },
-  index: { id: 'index', title: 'Index', x: 300, y: 180, width: 460, height: 300 },
-  profile: { id: 'profile', title: 'Profile', x: 760, y: 100, width: 360, height: 360 },
+  market: { id: 'market', title: 'Black Market', x: 190, y: 120, width: 500, height: 340 },
+  index: { id: 'index', title: 'Index', x: 300, y: 180, width: 460, height: 360 },
+  profile: { id: 'profile', title: 'Profile', x: 760, y: 100, width: 430, height: 470 },
   settings: { id: 'settings', title: 'Settings', x: 800, y: 250, width: 350, height: 240 }
 };
 
@@ -79,6 +83,23 @@ function makeLog(text: string, tone: TerminalLog['tone'] = 'info'): TerminalLog 
   };
 }
 
+function xpToNextLevel(level: number) {
+  return 80 + level * 35;
+}
+
+function grantXpRewards(state: PlayerState, xpReward: number): { next: PlayerState; logs: TerminalLog[] } {
+  const nextState = { ...state, xp: state.xp + xpReward };
+  const nextLogs: TerminalLog[] = [makeLog(`Mission reward: +${xpReward} XP`, 'success')];
+
+  while (nextState.xp >= xpToNextLevel(nextState.level)) {
+    nextState.xp -= xpToNextLevel(nextState.level);
+    nextState.level += 1;
+    nextLogs.push(makeLog(`LEVEL UP // Operator level ${nextState.level}`, 'success'));
+  }
+
+  return { next: nextState, logs: nextLogs };
+}
+
 function readPersisted(): PersistedDesktop {
   const defaults: PersistedDesktop = {
     windows: seedWindows(),
@@ -86,9 +107,10 @@ function readPersisted(): PersistedDesktop {
     cooldowns: defaultCooldowns,
     progression: defaultProgressionState,
     shopInventory: defaultShopInventory,
+    retention: defaultRetentionState,
     logs: [
       makeLog('ROOTACCESS terminal online. Type `help` to list commands.', 'success'),
-      makeLog('Mission set: run phish / scan / spoof to earn Ø.', 'info')
+      makeLog('Mission set: run command loops, then claim mission rewards in Profile.', 'info')
     ]
   };
 
@@ -102,6 +124,7 @@ function readPersisted(): PersistedDesktop {
       cooldowns: parsed.cooldowns ? { ...defaults.cooldowns, ...parsed.cooldowns } : defaults.cooldowns,
       progression: parsed.progression ? { ...defaults.progression, ...parsed.progression } : defaults.progression,
       shopInventory: Array.isArray(parsed.shopInventory) ? parsed.shopInventory : defaults.shopInventory,
+      retention: parsed.retention ? { ...defaults.retention, ...parsed.retention } : defaults.retention,
       logs: Array.isArray(parsed.logs) ? parsed.logs.slice(-MAX_LOGS) : defaults.logs
     };
   } catch {
@@ -117,6 +140,7 @@ export function App() {
   const [cooldowns, setCooldowns] = useState<Cooldowns>(initial.cooldowns);
   const [progression, setProgression] = useState<ProgressionState>(initial.progression);
   const [shopInventory] = useState<ShopItem[]>(initial.shopInventory);
+  const [retention, setRetention] = useState<RetentionState>(initial.retention);
   const [logs, setLogs] = useState<TerminalLog[]>(initial.logs);
 
   const [email, setEmail] = useState('');
@@ -151,14 +175,16 @@ export function App() {
         cooldowns,
         progression,
         shopInventory,
+        retention,
         logs: logs.slice(-MAX_LOGS)
       } satisfies PersistedDesktop)
     );
-  }, [windows, player, cooldowns, progression, shopInventory, logs]);
+  }, [windows, player, cooldowns, progression, shopInventory, retention, logs]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
       setPlayer((prev) => passiveTraceDecay(prev));
+      setRetention((prev) => applyDailyReset(prev));
     }, 5_000);
     return () => window.clearInterval(interval);
   }, []);
@@ -199,10 +225,7 @@ export function App() {
   const topZ = useMemo(() => Math.max(...windows.map((windowItem) => windowItem.z), 0), [windows]);
   const successRate = useMemo(() => Math.round(getSuccessRate(player) * 100), [player]);
   const ownedCommandKeys = useMemo(() => getOwnedCommandKeys(progression.ownedCommands), [progression.ownedCommands]);
-  const availableShopItems = useMemo(
-    () => shopInventory.filter((item) => isShopItemAvailable(item)),
-    [shopInventory]
-  );
+  const availableShopItems = useMemo(() => shopInventory.filter((item) => isShopItemAvailable(item)), [shopInventory]);
 
   function appendLogs(nextLogs: TerminalLog[]) {
     setLogs((prev) => [...prev, ...nextLogs].slice(-MAX_LOGS));
@@ -210,9 +233,7 @@ export function App() {
 
   function onBuyMarketItem(itemId: string) {
     const item = shopInventory.find((shopItem) => shopItem.id === itemId);
-    if (!item) return;
-    if (!isShopItemAvailable(item)) return;
-    if (player.nops < item.price) return;
+    if (!item || !isShopItemAvailable(item) || player.nops < item.price) return;
 
     setPlayer((prev) => ({ ...prev, nops: prev.nops - item.price }));
     setProgression((prev) => ({
@@ -262,14 +283,60 @@ export function App() {
     ]);
   }
 
+  function onClaimMission(missionId: string) {
+    const result = claimMissionReward(retention, missionId);
+    if (!result.xp && !result.nops) return;
+
+    setRetention(result.next);
+    setPlayer((prev) => {
+      const withNops = { ...prev, nops: prev.nops + result.nops };
+      const reward = grantXpRewards(withNops, result.xp);
+      appendLogs([...reward.logs, makeLog(`Mission reward: +${result.nops} Ø`, 'success')]);
+      return reward.next;
+    });
+  }
+
+  function onClaimDailyStreak() {
+    const result = claimDailyStreak(retention);
+    if (!result.nops) return;
+    setRetention(result.next);
+    setPlayer((prev) => ({ ...prev, nops: prev.nops + result.nops }));
+    appendLogs([makeLog(`Streak reward claimed: +${result.nops} Ø`, 'success')]);
+  }
+
+  async function onUploadProfilePhoto(file: File) {
+    const maxSize = 1_000_000;
+    if (file.size > maxSize) {
+      appendLogs([makeLog('Profile upload failed: image must be <= 1MB.', 'error')]);
+      return;
+    }
+
+    if (!user) {
+      const localUrl = URL.createObjectURL(file);
+      setRetention((prev) => ({ ...prev, profilePhotoUrl: localUrl, profilePhotoPath: null }));
+      appendLogs([makeLog('Guest mode: profile image set locally (not uploaded).', 'warn')]);
+      return;
+    }
+
+    try {
+      const path = `profiles/${user.uid}/${Date.now()}-${file.name}`;
+      const storageRef = ref(storage, path);
+      await uploadBytes(storageRef, file);
+      const downloadUrl = await getDownloadURL(storageRef);
+      setRetention((prev) => ({ ...prev, profilePhotoUrl: downloadUrl, profilePhotoPath: path }));
+      appendLogs([makeLog('Profile image uploaded successfully.', 'success')]);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'Unknown error';
+      appendLogs([makeLog(`Profile upload failed: ${reason}`, 'error')]);
+    }
+  }
+
   function bringToFront(id: AppId) {
     setWindows((prev) => prev.map((w) => (w.id === id ? { ...w, z: topZ + 1 } : w)));
   }
 
   function openWindow(id: AppId) {
-    setWindows((prev) =>
-      prev.map((w) => (w.id === id ? { ...w, isOpen: true, isMinimized: false, z: topZ + 1 } : w))
-    );
+    setWindows((prev) => prev.map((w) => (w.id === id ? { ...w, isOpen: true, isMinimized: false, z: topZ + 1 } : w)));
   }
 
   function closeWindow(id: AppId) {
@@ -292,9 +359,7 @@ export function App() {
   }
 
   function toggleMaximize(id: AppId) {
-    setWindows((prev) =>
-      prev.map((w) => (w.id === id ? { ...w, isMaximized: !w.isMaximized, isMinimized: false, z: topZ + 1 } : w))
-    );
+    setWindows((prev) => prev.map((w) => (w.id === id ? { ...w, isMaximized: !w.isMaximized, isMinimized: false, z: topZ + 1 } : w)));
   }
 
   async function onSubmitAuth(event: FormEvent<HTMLFormElement>) {
@@ -396,13 +461,14 @@ export function App() {
       <div className="desktop-wallpaper" />
       <header className="desktop-header">
         <div>
-          <p className="kicker">Aionous OS // Phase 5</p>
+          <p className="kicker">Aionous OS // Phase 6</p>
           <h2>Operator: {desktopIdentity}</h2>
         </div>
         <div className="header-metrics">
           <span>Balance: {player.nops} Ø</span>
           <span>Trace: {player.trace}%</span>
           <span>Win rate: {successRate}%</span>
+          <span>Streak: {retention.streakDays}d</span>
         </div>
         <button type="button" onClick={handleSignOut} className="danger">
           Sign Out
@@ -454,12 +520,18 @@ export function App() {
                   shopInventory,
                   availableShopItems,
                   ownedCommandKeys,
+                  retention,
+                  identity: desktopIdentity,
                   setPlayer,
                   setCooldowns,
+                  setRetention,
                   appendLogs,
                   setLogs,
                   onBuyMarketItem,
-                  onCompleteLesson
+                  onCompleteLesson,
+                  onClaimMission,
+                  onClaimDailyStreak,
+                  onUploadProfilePhoto
                 })}
               </div>
             </article>
@@ -501,12 +573,18 @@ type RenderContext = {
   shopInventory: ShopItem[];
   availableShopItems: ShopItem[];
   ownedCommandKeys: string[];
+  retention: RetentionState;
+  identity: string;
   setPlayer: (state: PlayerState) => void;
   setCooldowns: (cooldowns: Cooldowns) => void;
+  setRetention: (state: RetentionState) => void;
   appendLogs: (logs: TerminalLog[]) => void;
   setLogs: (next: TerminalLog[]) => void;
   onBuyMarketItem: (itemId: string) => void;
   onCompleteLesson: (itemId: string) => void;
+  onClaimMission: (missionId: string) => void;
+  onClaimDailyStreak: () => void;
+  onUploadProfilePhoto: (file: File) => void;
 };
 
 function renderWindowContent(id: AppId, ctx: RenderContext) {
@@ -518,9 +596,17 @@ function renderWindowContent(id: AppId, ctx: RenderContext) {
           cooldowns={ctx.cooldowns}
           logs={ctx.logs}
           ownedCommandKeys={ctx.ownedCommandKeys}
-          onUpdate={(state, nextCooldowns, appendedLogs) => {
+          onUpdate={(state, nextCooldowns, appendedLogs, meta) => {
             ctx.setPlayer(state);
             ctx.setCooldowns(nextCooldowns);
+            if (meta && state.totalRuns > ctx.player.totalRuns) {
+              const nextRetention = applyActivity(ctx.retention, {
+                commandKey: meta.commandKey,
+                success: meta.success,
+                payout: meta.payout
+              });
+              ctx.setRetention(nextRetention);
+            }
             ctx.appendLogs(appendedLogs);
           }}
           onClearLogs={() => ctx.setLogs([makeLog('Terminal log cleared.', 'info')])}
@@ -540,16 +626,14 @@ function renderWindowContent(id: AppId, ctx: RenderContext) {
       return <IndexApp progression={ctx.progression} catalog={ctx.shopInventory} />;
     case 'profile':
       return (
-        <div className="profile-metrics">
-          <h4>Operator Progress</h4>
-          <p>Balance: {ctx.player.nops} Ø</p>
-          <p>Level: {ctx.player.level}</p>
-          <p>XP: {ctx.player.xp}</p>
-          <p>Trace: {ctx.player.trace}%</p>
-          <p>
-            Success Rate: {Math.round(getSuccessRate(ctx.player) * 100)}% ({ctx.player.totalSuccess}/{ctx.player.totalRuns})
-          </p>
-        </div>
+        <ProfileApp
+          identity={ctx.identity}
+          player={ctx.player}
+          retention={ctx.retention}
+          onClaimMission={ctx.onClaimMission}
+          onClaimDailyStreak={ctx.onClaimDailyStreak}
+          onUploadProfilePhoto={ctx.onUploadProfilePhoto}
+        />
       );
     case 'settings':
       return (

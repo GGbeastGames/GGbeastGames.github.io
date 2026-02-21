@@ -15,7 +15,7 @@ Command parser and execution for `phish`, `scan`, `spoof` with cooldowns, reward
 ## Phase 05 — Black Market + Index + Traits ✅
 Unlock flow, command ownership UX, locked/missed states, and rare trait variants.
 
-## Phase 06 — Profile + Missions + Retention
+## Phase 06 — Profile + Missions + Retention ✅
 XP, levels, missions, streaks, badges, and leaderboard foundations.
 
 ## Phase 07 — Casino + Flux
