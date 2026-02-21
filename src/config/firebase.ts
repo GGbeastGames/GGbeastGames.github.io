@@ -25,4 +25,6 @@ void isSupported().then((supported) => {
   if (supported) {
     getAnalytics(app);
   }
+}).catch(() => {
+  // Ignore analytics bootstrap errors in restricted browser/runtime contexts.
 });

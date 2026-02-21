@@ -21,7 +21,7 @@ XP, levels, missions, streaks, badges, and leaderboard foundations.
 ## Phase 07 — Casino + Flux ✅
 Casino gameplay loop, Flux rewards, badge milestones, and controlled odds.
 
-## Phase 08 — PvP Ranked Arena
+## Phase 08 — PvP Ranked Arena ✅
 Queue, match flow, shard scoring, ranked points, seasons, and replay-safe logs.
 
 ## Phase 09 — Blockchain Market Fiction System

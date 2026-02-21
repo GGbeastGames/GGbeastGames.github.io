@@ -7,10 +7,12 @@ import {
   signOut
 } from 'firebase/auth';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
-import { auth, storage } from './config/firebase';
+import { onValue, ref as dbRef, remove, set } from 'firebase/database';
+import { auth, rtdb, storage } from './config/firebase';
 import { BlackMarketApp } from './components/apps/BlackMarketApp';
 import { CasinoApp } from './components/apps/CasinoApp';
 import { IndexApp } from './components/apps/IndexApp';
+import { PvpApp } from './components/apps/PvpApp';
 import { ProfileApp } from './components/apps/ProfileApp';
 import { TerminalApp } from './components/apps/TerminalApp';
 import { Cooldowns, PlayerState, TerminalLog, defaultCooldowns, defaultPlayerState, getSuccessRate, passiveTraceDecay } from './game/terminal';
@@ -27,9 +29,10 @@ import {
 } from './game/progression';
 import { RetentionState, applyActivity, applyDailyReset, claimDailyStreak, claimMissionReward, defaultRetentionState } from './game/retention';
 import { CasinoState, buyLuckCharm, defaultCasinoState, playCasinoRound } from './game/casino';
+import { PvpMatchState, PvpQueueEntry, RankedState, createMatch, defaultRankedState, playRound, resolveMatch } from './game/pvp';
 
 type AppPhase = 'boot' | 'login' | 'desktop';
-type AppId = 'terminal' | 'market' | 'index' | 'profile' | 'casino' | 'settings';
+type AppId = 'terminal' | 'market' | 'index' | 'profile' | 'casino' | 'pvp' | 'settings';
 
 type WindowState = {
   id: AppId;
@@ -53,6 +56,7 @@ type PersistedDesktop = {
   shopInventory: ShopItem[];
   retention: RetentionState;
   casino: CasinoState;
+  ranked: RankedState;
 };
 
 const STORAGE_KEY = 'aionous.desktop.v3';
@@ -65,6 +69,7 @@ const appTemplates: Record<AppId, Omit<WindowState, 'isOpen' | 'isMinimized' | '
   index: { id: 'index', title: 'Index', x: 300, y: 180, width: 460, height: 360 },
   profile: { id: 'profile', title: 'Profile', x: 760, y: 100, width: 430, height: 470 },
   casino: { id: 'casino', title: 'Casino', x: 470, y: 120, width: 500, height: 390 },
+  pvp: { id: 'pvp', title: 'PvP Arena', x: 380, y: 90, width: 620, height: 420 },
   settings: { id: 'settings', title: 'Settings', x: 800, y: 250, width: 350, height: 240 }
 };
 
@@ -113,6 +118,7 @@ function readPersisted(): PersistedDesktop {
     shopInventory: defaultShopInventory,
     retention: defaultRetentionState,
     casino: defaultCasinoState,
+    ranked: defaultRankedState,
     logs: [
       makeLog('ROOTACCESS terminal online. Type `help` to list commands.', 'success'),
       makeLog('Mission set: run command loops, then claim mission rewards in Profile.', 'info')
@@ -131,6 +137,7 @@ function readPersisted(): PersistedDesktop {
       shopInventory: Array.isArray(parsed.shopInventory) ? parsed.shopInventory : defaults.shopInventory,
       retention: parsed.retention ? { ...defaults.retention, ...parsed.retention } : defaults.retention,
       casino: parsed.casino ? { ...defaults.casino, ...parsed.casino } : defaults.casino,
+      ranked: parsed.ranked ? { ...defaults.ranked, ...parsed.ranked } : defaults.ranked,
       logs: Array.isArray(parsed.logs) ? parsed.logs.slice(-MAX_LOGS) : defaults.logs
     };
   } catch {
@@ -148,6 +155,10 @@ export function App() {
   const [shopInventory] = useState<ShopItem[]>(initial.shopInventory);
   const [retention, setRetention] = useState<RetentionState>(initial.retention);
   const [casino, setCasino] = useState<CasinoState>(initial.casino);
+  const [ranked, setRanked] = useState<RankedState>(initial.ranked);
+  const [pvpQueue, setPvpQueue] = useState<PvpQueueEntry[]>([]);
+  const [inPvpQueue, setInPvpQueue] = useState(false);
+  const [activeMatch, setActiveMatch] = useState<PvpMatchState | null>(null);
   const [logs, setLogs] = useState<TerminalLog[]>(initial.logs);
 
   const [email, setEmail] = useState('');
@@ -184,10 +195,11 @@ export function App() {
         shopInventory,
         retention,
         casino,
+        ranked,
         logs: logs.slice(-MAX_LOGS)
       } satisfies PersistedDesktop)
     );
-  }, [windows, player, cooldowns, progression, shopInventory, retention, casino, logs]);
+  }, [windows, player, cooldowns, progression, shopInventory, retention, casino, ranked, logs]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -195,6 +207,27 @@ export function App() {
       setRetention((prev) => applyDailyReset(prev));
     }, 5_000);
     return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const queuePath = dbRef(rtdb, 'pvp/queue');
+    const unsub = onValue(queuePath, (snap) => {
+      const raw = snap.val() as Record<string, { alias: string; rankedPoints: number; queuedAt: number }> | null;
+      if (!raw) {
+        setPvpQueue([]);
+        return;
+      }
+
+      const rows: PvpQueueEntry[] = Object.entries(raw).map(([id, value]) => ({
+        id,
+        alias: value.alias,
+        rankedPoints: value.rankedPoints,
+        queuedAt: value.queuedAt
+      }));
+      rows.sort((a, b) => b.queuedAt - a.queuedAt);
+      setPvpQueue(rows);
+    });
+    return () => unsub();
   }, []);
 
   useEffect(() => {
@@ -333,6 +366,69 @@ export function App() {
     const result = buyLuckCharm(casino);
     setCasino(result.next);
     appendLogs([makeLog(result.message, result.ok ? 'success' : 'warn')]);
+  }
+
+  function onTogglePvpQueue() {
+    setInPvpQueue((prev) => !prev);
+    const queueId = user?.uid ?? `guest-${desktopIdentity.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+    const queuePath = dbRef(rtdb, `pvp/queue/${queueId}`);
+
+    if (!inPvpQueue) {
+      const newEntry: PvpQueueEntry = {
+        id: queueId,
+        alias: desktopIdentity,
+        rankedPoints: ranked.rankedPoints,
+        queuedAt: Date.now()
+      };
+      void set(queuePath, {
+        alias: newEntry.alias,
+        rankedPoints: newEntry.rankedPoints,
+        queuedAt: newEntry.queuedAt
+      });
+      setPvpQueue((prev) => [newEntry, ...prev.filter((entry) => entry.id !== queueId)]);
+      appendLogs([makeLog('PvP queue joined. Awaiting challenger...', 'info')]);
+      return;
+    }
+
+    void remove(queuePath);
+    setPvpQueue((prev) => prev.filter((entry) => entry.id !== queueId));
+    appendLogs([makeLog('PvP queue left.', 'warn')]);
+  }
+
+  function onStartPvpMatch(opponentAlias: string) {
+    if (activeMatch) return;
+    const match = createMatch(opponentAlias);
+    setActiveMatch(match);
+    appendLogs([makeLog(`PvP match ready: ${desktopIdentity} vs ${opponentAlias}.`, 'success')]);
+  }
+
+  function onPlayPvpRound() {
+    if (!activeMatch) return;
+    const next = playRound(activeMatch);
+    setActiveMatch(next);
+
+    appendLogs([
+      makeLog(
+        `PvP round ${next.roundsPlayed}: You ${next.playerShards}/${next.playerHacks} shards/hacks | Opp ${next.opponentShards}/${next.opponentHacks}.`,
+        'info'
+      )
+    ]);
+
+    if (next.complete) {
+      const outcome = resolveMatch(next, ranked);
+      setRanked(outcome.ranked);
+
+      if (outcome.result === 'win') {
+        setPlayer((prev) => ({ ...prev, nops: prev.nops + Math.floor(prev.nops * outcome.stolenNopsPct) }));
+      }
+
+      appendLogs([
+        makeLog(
+          `PvP result ${outcome.result.toUpperCase()} (${outcome.pointsDelta > 0 ? '+' : ''}${outcome.pointsDelta} RP).`,
+          outcome.result === 'win' ? 'success' : 'warn'
+        )
+      ]);
+    }
   }
 
   async function onUploadProfilePhoto(file: File) {
@@ -492,7 +588,7 @@ export function App() {
       <div className="desktop-wallpaper" />
       <header className="desktop-header">
         <div>
-          <p className="kicker">Aionous OS // Phase 7</p>
+          <p className="kicker">Aionous OS // Phase 8</p>
           <h2>Operator: {desktopIdentity}</h2>
         </div>
         <div className="header-metrics">
@@ -501,6 +597,7 @@ export function App() {
           <span>Win rate: {successRate}%</span>
           <span>Streak: {retention.streakDays}d</span>
           <span>Flux: {casino.flux}ƒ</span>
+          <span>Ranked: {ranked.rankedPoints} RP</span>
         </div>
         <button type="button" onClick={handleSignOut} className="danger">
           Sign Out
@@ -554,6 +651,10 @@ export function App() {
                   ownedCommandKeys,
                   retention,
                   casino,
+                  ranked,
+                  pvpQueue,
+                  inPvpQueue,
+                  activeMatch,
                   identity: desktopIdentity,
                   setPlayer,
                   setCooldowns,
@@ -566,6 +667,9 @@ export function App() {
                   onClaimDailyStreak,
                   onPlayCasino,
                   onBuyCasinoCharm,
+                  onTogglePvpQueue,
+                  onStartPvpMatch,
+                  onPlayPvpRound,
                   onUploadProfilePhoto
                 })}
               </div>
@@ -610,6 +714,10 @@ type RenderContext = {
   ownedCommandKeys: string[];
   retention: RetentionState;
   casino: CasinoState;
+  ranked: RankedState;
+  pvpQueue: PvpQueueEntry[];
+  inPvpQueue: boolean;
+  activeMatch: PvpMatchState | null;
   identity: string;
   setPlayer: (state: PlayerState) => void;
   setCooldowns: (cooldowns: Cooldowns) => void;
@@ -622,6 +730,9 @@ type RenderContext = {
   onClaimDailyStreak: () => void;
   onPlayCasino: (game: 'high-low' | 'neon-wheel', wager: number) => void;
   onBuyCasinoCharm: () => void;
+  onTogglePvpQueue: () => void;
+  onStartPvpMatch: (opponentAlias: string) => void;
+  onPlayPvpRound: () => void;
   onUploadProfilePhoto: (file: File) => void;
 };
 
@@ -675,6 +786,19 @@ function renderWindowContent(id: AppId, ctx: RenderContext) {
       );
     case 'casino':
       return <CasinoApp casino={ctx.casino} balance={ctx.player.nops} onPlay={ctx.onPlayCasino} onBuyCharm={ctx.onBuyCasinoCharm} />;
+    case 'pvp':
+      return (
+        <PvpApp
+          queue={ctx.pvpQueue}
+          inQueue={ctx.inPvpQueue}
+          alias={ctx.identity}
+          ranked={ctx.ranked}
+          activeMatch={ctx.activeMatch}
+          onToggleQueue={ctx.onTogglePvpQueue}
+          onStartMatch={ctx.onStartPvpMatch}
+          onPlayRound={ctx.onPlayPvpRound}
+        />
+      );
     case 'settings':
       return (
         <div className="placeholder">

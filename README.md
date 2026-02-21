@@ -30,6 +30,7 @@ npm run build
 ### GitHub Pages base-path safety
 This repo uses a relative Vite base by default (`./`) to prevent blank-page deploys on GitHub Pages.
 If you need a custom subpath, set `VITE_BASE_PATH` during build (example: `/Aionous/`).
+Build also creates `dist/404.html` + `dist/.nojekyll` for GitHub Pages SPA fallback hardening.
 
 ## Implemented phases
 - ✅ Phase 1: Foundation
@@ -39,6 +40,7 @@ If you need a custom subpath, set `VITE_BASE_PATH` during build (example: `/Aion
 - ✅ Phase 5: Black Market + Index + Trait variants
 - ✅ Phase 6: Profile + Missions + retention systems
 - ✅ Phase 7: Casino + Flux side-economy
+- ✅ Phase 8: PvP Arena + ranked progression
 
 ## Phase docs
 - `docs/PHASE_01_CHECKLIST.md`
@@ -48,6 +50,7 @@ If you need a custom subpath, set `VITE_BASE_PATH` during build (example: `/Aion
 - `docs/PHASE_05_BLACK_MARKET_INDEX_TRAITS.md`
 - `docs/PHASE_06_PROFILE_MISSIONS_RETENTION.md`
 - `docs/PHASE_07_CASINO_FLUX.md`
+- `docs/PHASE_08_PVP_ARENA.md`
 - `docs/ASSET_PIPELINE.md`
 - `docs/ARCHITECTURE.md`
 - `docs/ECONOMY_BASELINE.md`

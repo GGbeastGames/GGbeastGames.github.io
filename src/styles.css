@@ -242,3 +242,23 @@ button:hover { background: rgba(57,255,185,.14); }
 @media (max-width: 980px) {
   .casino-grid { grid-template-columns: 1fr; }
 }
+
+.pvp-app { display:grid; gap:.65rem; }
+.pvp-grid { display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:.55rem; }
+.pvp-grid section {
+  border:1px solid rgba(255,82,122,.35);
+  border-radius:8px;
+  background:linear-gradient(180deg, rgba(28,9,16,.92), rgba(10,11,28,.86));
+  padding:.5rem;
+}
+.pvp-grid h5 { margin:.1rem 0 .35rem; color:#ff9ab5; }
+.pvp-grid p, .pvp-grid li { margin:.2rem 0; font-size:.8rem; color:#ffd4df; }
+.pvp-grid ul, .pvp-grid ol { margin:.2rem 0 .1rem; padding-left:1rem; }
+.duel-row { display:grid; grid-template-columns:1fr 1fr; gap:.45rem; }
+.duel-row article { border:1px solid rgba(255,123,160,.25); border-radius:6px; padding:.35rem; }
+.duel-row h6 { margin:.1rem 0 .3rem; color:#ffb9cb; font-size:.8rem; }
+
+@media (max-width: 980px) {
+  .pvp-grid { grid-template-columns: 1fr; }
+  .duel-row { grid-template-columns: 1fr; }
+}
