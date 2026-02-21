@@ -9,6 +9,7 @@ import {
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { auth, storage } from './config/firebase';
 import { BlackMarketApp } from './components/apps/BlackMarketApp';
+import { CasinoApp } from './components/apps/CasinoApp';
 import { IndexApp } from './components/apps/IndexApp';
 import { ProfileApp } from './components/apps/ProfileApp';
 import { TerminalApp } from './components/apps/TerminalApp';
@@ -25,9 +26,10 @@ import {
   toCommandKey
 } from './game/progression';
 import { RetentionState, applyActivity, applyDailyReset, claimDailyStreak, claimMissionReward, defaultRetentionState } from './game/retention';
+import { CasinoState, buyLuckCharm, defaultCasinoState, playCasinoRound } from './game/casino';
 
 type AppPhase = 'boot' | 'login' | 'desktop';
-type AppId = 'terminal' | 'market' | 'index' | 'profile' | 'settings';
+type AppId = 'terminal' | 'market' | 'index' | 'profile' | 'casino' | 'settings';
 
 type WindowState = {
   id: AppId;
@@ -50,6 +52,7 @@ type PersistedDesktop = {
   progression: ProgressionState;
   shopInventory: ShopItem[];
   retention: RetentionState;
+  casino: CasinoState;
 };
 
 const STORAGE_KEY = 'aionous.desktop.v3';
@@ -61,6 +64,7 @@ const appTemplates: Record<AppId, Omit<WindowState, 'isOpen' | 'isMinimized' | '
   market: { id: 'market', title: 'Black Market', x: 190, y: 120, width: 500, height: 340 },
   index: { id: 'index', title: 'Index', x: 300, y: 180, width: 460, height: 360 },
   profile: { id: 'profile', title: 'Profile', x: 760, y: 100, width: 430, height: 470 },
+  casino: { id: 'casino', title: 'Casino', x: 470, y: 120, width: 500, height: 390 },
   settings: { id: 'settings', title: 'Settings', x: 800, y: 250, width: 350, height: 240 }
 };
 
@@ -108,6 +112,7 @@ function readPersisted(): PersistedDesktop {
     progression: defaultProgressionState,
     shopInventory: defaultShopInventory,
     retention: defaultRetentionState,
+    casino: defaultCasinoState,
     logs: [
       makeLog('ROOTACCESS terminal online. Type `help` to list commands.', 'success'),
       makeLog('Mission set: run command loops, then claim mission rewards in Profile.', 'info')
@@ -125,6 +130,7 @@ function readPersisted(): PersistedDesktop {
       progression: parsed.progression ? { ...defaults.progression, ...parsed.progression } : defaults.progression,
       shopInventory: Array.isArray(parsed.shopInventory) ? parsed.shopInventory : defaults.shopInventory,
       retention: parsed.retention ? { ...defaults.retention, ...parsed.retention } : defaults.retention,
+      casino: parsed.casino ? { ...defaults.casino, ...parsed.casino } : defaults.casino,
       logs: Array.isArray(parsed.logs) ? parsed.logs.slice(-MAX_LOGS) : defaults.logs
     };
   } catch {
@@ -141,6 +147,7 @@ export function App() {
   const [progression, setProgression] = useState<ProgressionState>(initial.progression);
   const [shopInventory] = useState<ShopItem[]>(initial.shopInventory);
   const [retention, setRetention] = useState<RetentionState>(initial.retention);
+  const [casino, setCasino] = useState<CasinoState>(initial.casino);
   const [logs, setLogs] = useState<TerminalLog[]>(initial.logs);
 
   const [email, setEmail] = useState('');
@@ -176,10 +183,11 @@ export function App() {
         progression,
         shopInventory,
         retention,
+        casino,
         logs: logs.slice(-MAX_LOGS)
       } satisfies PersistedDesktop)
     );
-  }, [windows, player, cooldowns, progression, shopInventory, retention, logs]);
+  }, [windows, player, cooldowns, progression, shopInventory, retention, casino, logs]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -302,6 +310,29 @@ export function App() {
     setRetention(result.next);
     setPlayer((prev) => ({ ...prev, nops: prev.nops + result.nops }));
     appendLogs([makeLog(`Streak reward claimed: +${result.nops} Ø`, 'success')]);
+  }
+
+  function onPlayCasino(game: 'high-low' | 'neon-wheel', wager: number) {
+    if (wager > player.nops) {
+      appendLogs([makeLog('Casino wager denied: insufficient Ø balance.', 'warn')]);
+      return;
+    }
+
+    const outcome = playCasinoRound(casino, game, wager);
+    if (outcome.blocked) {
+      appendLogs([makeLog(outcome.message, 'warn')]);
+      return;
+    }
+
+    setCasino(outcome.next);
+    setPlayer((prev) => ({ ...prev, nops: prev.nops - wager + outcome.payout }));
+    appendLogs([makeLog(`Casino ${game}: ${outcome.message}`, outcome.won ? 'success' : 'warn')]);
+  }
+
+  function onBuyCasinoCharm() {
+    const result = buyLuckCharm(casino);
+    setCasino(result.next);
+    appendLogs([makeLog(result.message, result.ok ? 'success' : 'warn')]);
   }
 
   async function onUploadProfilePhoto(file: File) {
@@ -461,7 +492,7 @@ export function App() {
       <div className="desktop-wallpaper" />
       <header className="desktop-header">
         <div>
-          <p className="kicker">Aionous OS // Phase 6</p>
+          <p className="kicker">Aionous OS // Phase 7</p>
           <h2>Operator: {desktopIdentity}</h2>
         </div>
         <div className="header-metrics">
@@ -469,6 +500,7 @@ export function App() {
           <span>Trace: {player.trace}%</span>
           <span>Win rate: {successRate}%</span>
           <span>Streak: {retention.streakDays}d</span>
+          <span>Flux: {casino.flux}ƒ</span>
         </div>
         <button type="button" onClick={handleSignOut} className="danger">
           Sign Out
@@ -521,6 +553,7 @@ export function App() {
                   availableShopItems,
                   ownedCommandKeys,
                   retention,
+                  casino,
                   identity: desktopIdentity,
                   setPlayer,
                   setCooldowns,
@@ -531,6 +564,8 @@ export function App() {
                   onCompleteLesson,
                   onClaimMission,
                   onClaimDailyStreak,
+                  onPlayCasino,
+                  onBuyCasinoCharm,
                   onUploadProfilePhoto
                 })}
               </div>
@@ -574,6 +609,7 @@ type RenderContext = {
   availableShopItems: ShopItem[];
   ownedCommandKeys: string[];
   retention: RetentionState;
+  casino: CasinoState;
   identity: string;
   setPlayer: (state: PlayerState) => void;
   setCooldowns: (cooldowns: Cooldowns) => void;
@@ -584,6 +620,8 @@ type RenderContext = {
   onCompleteLesson: (itemId: string) => void;
   onClaimMission: (missionId: string) => void;
   onClaimDailyStreak: () => void;
+  onPlayCasino: (game: 'high-low' | 'neon-wheel', wager: number) => void;
+  onBuyCasinoCharm: () => void;
   onUploadProfilePhoto: (file: File) => void;
 };
 
@@ -635,6 +673,8 @@ function renderWindowContent(id: AppId, ctx: RenderContext) {
           onUploadProfilePhoto={ctx.onUploadProfilePhoto}
         />
       );
+    case 'casino':
+      return <CasinoApp casino={ctx.casino} balance={ctx.player.nops} onPlay={ctx.onPlayCasino} onBuyCharm={ctx.onBuyCasinoCharm} />;
     case 'settings':
       return (
         <div className="placeholder">

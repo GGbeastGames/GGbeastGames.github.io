@@ -18,7 +18,7 @@ Unlock flow, command ownership UX, locked/missed states, and rare trait variants
 ## Phase 06 — Profile + Missions + Retention ✅
 XP, levels, missions, streaks, badges, and leaderboard foundations.
 
-## Phase 07 — Casino + Flux
+## Phase 07 — Casino + Flux ✅
 Casino gameplay loop, Flux rewards, badge milestones, and controlled odds.
 
 ## Phase 08 — PvP Ranked Arena
