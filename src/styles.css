@@ -1,8 +1,9 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=JetBrains+Mono:wght@400;600&family=Rajdhani:wght@500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=JetBrains+Mono:wght@400;700&family=Rajdhani:wght@500;700&display=swap');
 
 :root {
-  color: #e8fff5;
-  background: #040c14;
+  color: #e6fff5;
+  background-color: #051019;
+  font-family: Inter, 'Segoe UI', sans-serif;
 }
 
 * {
@@ -12,173 +13,266 @@
 body {
   margin: 0;
   min-height: 100vh;
-  font-family: Inter, 'Segoe UI', sans-serif;
-  background:
-    radial-gradient(circle at 18% 12%, rgba(54, 255, 181, 0.18), transparent 38%),
-    radial-gradient(circle at 80% 8%, rgba(52, 156, 255, 0.16), transparent 35%),
-    #040c14;
-}
-
-.desktop {
-  width: min(1200px, 95vw);
-  margin: 1.8rem auto 2.5rem;
-  display: grid;
-  gap: 1rem;
-}
-
-.panel {
-  background: rgba(8, 25, 36, 0.85);
-  border: 1px solid rgba(54, 255, 181, 0.35);
-  border-radius: 14px;
-  padding: 1rem 1.1rem;
-  box-shadow: 0 0 20px rgba(54, 255, 181, 0.1);
 }
 
 .kicker {
   margin: 0;
-  color: #36ffb5;
+  color: #39ffb9;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  font: 600 0.8rem 'JetBrains Mono', monospace;
+  font: 700 0.75rem 'JetBrains Mono', monospace;
 }
 
-.hero h1 {
-  margin: 0.4rem 0;
-  font-family: Rajdhani, Inter, sans-serif;
-  font-size: clamp(1.5rem, 2.3vw, 2.2rem);
+.muted {
+  color: #93d9c4;
 }
 
-.hero p {
-  margin: 0;
-  color: #9fe8d1;
-}
-
-.window-grid {
+.boot-screen {
+  min-height: 100vh;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-  gap: 1rem;
+  place-items: center;
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(30, 255, 190, 0.2), transparent 36%),
+    radial-gradient(circle at 78% 8%, rgba(45, 155, 255, 0.16), transparent 34%),
+    linear-gradient(180deg, #051019 0%, #02070d 100%);
 }
 
-.cyber-window {
-  background: linear-gradient(180deg, rgba(6, 19, 29, 0.95) 0%, rgba(5, 15, 23, 0.94) 100%);
-  border: 1px solid rgba(56, 168, 255, 0.25);
-  border-radius: 14px;
-  box-shadow: 0 0 0 1px rgba(54, 255, 181, 0.24), 0 0 28px rgba(54, 255, 181, 0.12);
+.boot-screen::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(rgba(57, 255, 185, 0.08) 1px, transparent 1px);
+  background-size: 100% 3px;
+  pointer-events: none;
+}
+
+.boot-overlay {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at center, transparent 20%, rgba(1, 8, 13, 0.85) 80%);
+}
+
+.boot-content {
+  position: relative;
+  text-align: center;
+  z-index: 1;
+}
+
+.boot-content p,
+.boot-content h1 {
+  margin: 0.3rem 0;
+}
+
+.boot-content h1 {
+  font: 700 1.2rem 'JetBrains Mono', monospace;
+}
+
+.boot-loader {
+  margin: 1rem auto 0;
+  width: 220px;
+  height: 8px;
+  border: 1px solid rgba(57, 255, 185, 0.45);
+  position: relative;
   overflow: hidden;
 }
 
-.cyber-window__header {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.6rem;
-  padding: 0.8rem 0.9rem;
-  border-bottom: 1px solid rgba(54, 255, 181, 0.18);
+.boot-loader::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, #39ffb9, transparent);
+  animation: load 1.6s linear infinite;
 }
 
-.cyber-window__kicker {
-  margin: 0;
-  font: 600 0.72rem 'JetBrains Mono', monospace;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #36ffb5;
+@keyframes load {
+  to {
+    transform: translateX(100%);
+  }
 }
 
-.cyber-window h3 {
-  margin: 0.18rem 0 0;
-  font-family: Rajdhani, Inter, sans-serif;
-  font-size: 1.3rem;
+.login-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(54, 255, 181, 0.22), transparent 35%),
+    radial-gradient(circle at 80% 10%, rgba(52, 156, 255, 0.2), transparent 32%),
+    #051019;
 }
 
-.cyber-window__subtitle {
-  margin: 0.25rem 0 0;
-  color: #78c9b1;
+.login-card {
+  width: min(480px, 92vw);
+  padding: 1.25rem;
+  border-radius: 14px;
+  background: rgba(6, 20, 30, 0.84);
+  border: 1px solid rgba(57, 255, 185, 0.34);
+  box-shadow: 0 0 30px rgba(57, 255, 185, 0.12);
+}
+
+.login-card h1 {
+  margin: 0.4rem 0;
+  font: 700 1.8rem Rajdhani, sans-serif;
+}
+
+.auth-form {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.7rem;
+}
+
+.auth-form label {
+  display: grid;
+  gap: 0.35rem;
+  color: #cafde9;
   font-size: 0.9rem;
 }
 
-.cyber-window__controls {
+input {
+  border: 1px solid rgba(57, 255, 185, 0.35);
+  border-radius: 8px;
+  background: rgba(5, 14, 22, 0.9);
+  color: #e6fff5;
+  padding: 0.55rem 0.6rem;
+}
+
+button {
+  border: 1px solid rgba(57, 255, 185, 0.4);
+  border-radius: 8px;
+  background: rgba(7, 19, 28, 0.95);
+  color: #d7fff1;
+  padding: 0.5rem 0.7rem;
+  cursor: pointer;
+}
+
+button:hover {
+  background: rgba(57, 255, 185, 0.14);
+}
+
+.login-actions {
+  margin-top: 0.7rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+}
+
+.error {
+  color: #ff87a6;
+  margin-bottom: 0;
+}
+
+.desktop-shell {
+  min-height: 100vh;
+  position: relative;
+  overflow: hidden;
+  background: #040b13;
+}
+
+.desktop-wallpaper {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 15% 18%, rgba(56, 255, 180, 0.17), transparent 35%),
+    radial-gradient(circle at 78% 12%, rgba(52, 156, 255, 0.18), transparent 30%),
+    linear-gradient(140deg, #030910 20%, #051c23 100%);
+}
+
+.desktop-header {
+  position: relative;
+  z-index: 4;
   display: flex;
-  gap: 0.25rem;
-  align-items: flex-start;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.65rem 0.9rem;
+  border-bottom: 1px solid rgba(57, 255, 185, 0.3);
+  background: rgba(6, 17, 26, 0.7);
 }
 
-.cyber-window__controls span {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.35);
+.desktop-header h2 {
+  margin: 0.2rem 0 0;
+  font: 600 1.1rem Rajdhani, sans-serif;
 }
 
-.cyber-window__controls span:nth-child(1) {
-  background: #36ffb5;
+.danger {
+  border-color: rgba(255, 112, 140, 0.5);
 }
 
-.cyber-window__controls span:nth-child(2) {
-  background: #38a8ff;
+.window-layer {
+  position: relative;
+  z-index: 2;
+  height: calc(100vh - 108px);
 }
 
-.cyber-window__controls span:nth-child(3) {
-  background: #ff5a83;
-}
-
-.cyber-window__body {
-  padding: 0.9rem;
-}
-
-.token-grid {
+.app-window {
+  position: absolute;
+  background: rgba(8, 22, 34, 0.95);
+  border: 1px solid rgba(57, 255, 185, 0.36);
+  border-radius: 12px;
+  box-shadow: 0 0 0 1px rgba(57, 255, 185, 0.2), 0 0 25px rgba(57, 255, 185, 0.1);
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
-  gap: 0.6rem;
+  grid-template-rows: auto 1fr;
+  overflow: hidden;
 }
 
-.token-card {
-  border: 1px solid rgba(54, 255, 181, 0.25);
-  background: rgba(4, 13, 20, 0.8);
-  border-radius: 10px;
-  padding: 0.55rem;
+.window-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.6rem;
+  background: rgba(7, 18, 29, 0.95);
+  border-bottom: 1px solid rgba(57, 255, 185, 0.25);
+  cursor: move;
+  user-select: none;
 }
 
-.token-card p {
+.window-bar p {
   margin: 0;
-  color: #9bd8c6;
-  font-size: 0.75rem;
+  font: 600 0.86rem 'JetBrains Mono', monospace;
 }
 
-.token-card strong {
-  display: block;
-  margin-top: 0.4rem;
-  font: 600 0.76rem 'JetBrains Mono', monospace;
-}
-
-.token-swatch {
-  display: block;
-  margin-top: 0.45rem;
-  width: 100%;
-  height: 20px;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-}
-
-.statline {
-  margin: 0.2rem 0;
-}
-
-h4 {
-  margin: 0.7rem 0 0.2rem;
-  color: #36ffb5;
-}
-
-ul {
-  margin: 0;
-  padding-left: 1rem;
-  display: grid;
+.window-buttons {
+  display: flex;
   gap: 0.35rem;
 }
 
-li {
-  color: #d4fff2;
-  font-size: 0.9rem;
+.window-buttons button {
+  width: 30px;
+  height: 24px;
+  padding: 0;
+  font-family: 'JetBrains Mono', monospace;
 }
 
-a {
-  color: #74d8ff;
+.window-content {
+  padding: 0.8rem;
+  color: #c8ffeb;
+  overflow: auto;
+}
+
+.taskbar {
+  position: fixed;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: min(95vw, 980px);
+  padding: 0.5rem;
+  border: 1px solid rgba(57, 255, 185, 0.3);
+  border-radius: 14px;
+  background: rgba(6, 17, 26, 0.86);
+}
+
+.taskbar button {
+  font: 600 0.76rem 'JetBrains Mono', monospace;
+  text-transform: uppercase;
+}
+
+.taskbar button.active {
+  background: rgba(57, 255, 185, 0.22);
 }
