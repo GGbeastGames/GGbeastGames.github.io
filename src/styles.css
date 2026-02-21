@@ -294,3 +294,20 @@ button:hover { background: rgba(57,255,185,.14); }
 @media (max-width: 980px) {
   .blockchain-grid { grid-template-columns: 1fr; }
 }
+
+.growth-app { display:grid; gap:.65rem; }
+.growth-grid { display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:.55rem; }
+.growth-grid section {
+  border:1px solid rgba(170,255,126,.35);
+  border-radius:8px;
+  background:linear-gradient(180deg, rgba(10,24,11,.92), rgba(8,24,34,.86));
+  padding:.5rem;
+}
+.growth-grid article { border:1px solid rgba(152,255,190,.24); border-radius:6px; padding:.35rem; margin:.3rem 0; }
+.growth-grid h5 { margin:.1rem 0 .35rem; color:#bcff8f; }
+.growth-grid p, .growth-grid li, .growth-grid label { margin:.2rem 0; font-size:.8rem; color:#dbffd2; }
+.growth-grid ul { margin:.2rem 0 .1rem; padding-left:1rem; }
+
+@media (max-width: 980px) {
+  .growth-grid { grid-template-columns: 1fr; }
+}

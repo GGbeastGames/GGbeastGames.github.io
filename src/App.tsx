@@ -12,6 +12,7 @@ import { auth, rtdb, storage } from './config/firebase';
 import { BlackMarketApp } from './components/apps/BlackMarketApp';
 import { BlockchainApp } from './components/apps/BlockchainApp';
 import { CasinoApp } from './components/apps/CasinoApp';
+import { GrowthApp } from './components/apps/GrowthApp';
 import { IndexApp } from './components/apps/IndexApp';
 import { PvpApp } from './components/apps/PvpApp';
 import { ProfileApp } from './components/apps/ProfileApp';
@@ -39,9 +40,19 @@ import {
   sellShares,
   upgradeBlockSecurity
 } from './game/blockchain';
+import {
+  FactionId,
+  GrowthState,
+  chooseFaction,
+  craftCommand,
+  decayHeat,
+  defaultGrowthState,
+  resolveContract,
+  startContract
+} from './game/growth';
 
 type AppPhase = 'boot' | 'login' | 'desktop';
-type AppId = 'terminal' | 'market' | 'index' | 'profile' | 'casino' | 'pvp' | 'blockchain' | 'settings';
+type AppId = 'terminal' | 'market' | 'index' | 'profile' | 'casino' | 'pvp' | 'blockchain' | 'growth' | 'settings';
 
 type WindowState = {
   id: AppId;
@@ -67,6 +78,7 @@ type PersistedDesktop = {
   casino: CasinoState;
   ranked: RankedState;
   blockchain: BlockchainState;
+  growth: GrowthState;
 };
 
 const STORAGE_KEY = 'aionous.desktop.v3';
@@ -81,6 +93,7 @@ const appTemplates: Record<AppId, Omit<WindowState, 'isOpen' | 'isMinimized' | '
   casino: { id: 'casino', title: 'Casino', x: 470, y: 120, width: 500, height: 390 },
   pvp: { id: 'pvp', title: 'PvP Arena', x: 380, y: 90, width: 620, height: 420 },
   blockchain: { id: 'blockchain', title: 'Blockchain', x: 260, y: 70, width: 640, height: 420 },
+  growth: { id: 'growth', title: 'Growth Hub', x: 230, y: 95, width: 700, height: 430 },
   settings: { id: 'settings', title: 'Settings', x: 800, y: 250, width: 350, height: 240 }
 };
 
@@ -131,6 +144,7 @@ function readPersisted(): PersistedDesktop {
     casino: defaultCasinoState,
     ranked: defaultRankedState,
     blockchain: defaultBlockchainState,
+    growth: defaultGrowthState,
     logs: [
       makeLog('ROOTACCESS terminal online. Type `help` to list commands.', 'success'),
       makeLog('Mission set: run command loops, then claim mission rewards in Profile.', 'info')
@@ -151,6 +165,7 @@ function readPersisted(): PersistedDesktop {
       casino: parsed.casino ? { ...defaults.casino, ...parsed.casino } : defaults.casino,
       ranked: parsed.ranked ? { ...defaults.ranked, ...parsed.ranked } : defaults.ranked,
       blockchain: parsed.blockchain ? { ...defaults.blockchain, ...parsed.blockchain } : defaults.blockchain,
+      growth: parsed.growth ? { ...defaults.growth, ...parsed.growth } : defaults.growth,
       logs: Array.isArray(parsed.logs) ? parsed.logs.slice(-MAX_LOGS) : defaults.logs
     };
   } catch {
@@ -173,6 +188,7 @@ export function App() {
   const [inPvpQueue, setInPvpQueue] = useState(false);
   const [activeMatch, setActiveMatch] = useState<PvpMatchState | null>(null);
   const [blockchain, setBlockchain] = useState<BlockchainState>(initial.blockchain);
+  const [growth, setGrowth] = useState<GrowthState>(initial.growth);
   const [logs, setLogs] = useState<TerminalLog[]>(initial.logs);
 
   const [email, setEmail] = useState('');
@@ -211,10 +227,11 @@ export function App() {
         casino,
         ranked,
         blockchain,
+        growth,
         logs: logs.slice(-MAX_LOGS)
       } satisfies PersistedDesktop)
     );
-  }, [windows, player, cooldowns, progression, shopInventory, retention, casino, ranked, blockchain, logs]);
+  }, [windows, player, cooldowns, progression, shopInventory, retention, casino, ranked, blockchain, growth, logs]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -227,6 +244,7 @@ export function App() {
   useEffect(() => {
     const interval = window.setInterval(() => {
       setBlockchain((prev) => maybeRefreshMarket(prev));
+      setGrowth((prev) => decayHeat(prev));
     }, 10_000);
     return () => window.clearInterval(interval);
   }, []);
@@ -489,6 +507,39 @@ export function App() {
     appendLogs([makeLog(result.message, 'success')]);
   }
 
+  function onPickFaction(faction: FactionId) {
+    setGrowth((prev) => chooseFaction(prev, faction));
+    appendLogs([makeLog(`Faction selected: ${faction}.`, 'success')]);
+  }
+
+  function onStartGrowthContract(contractId: string) {
+    const result = startContract(growth, contractId);
+    setGrowth(result.next);
+    appendLogs([makeLog(result.message, result.ok ? 'success' : 'warn')]);
+  }
+
+  function onResolveGrowthContract() {
+    const result = resolveContract(growth);
+    setGrowth(result.next);
+    appendLogs([makeLog(result.message, result.finished ? 'success' : 'warn')]);
+
+    if (result.finished) {
+      setPlayer((prev) => ({ ...prev, nops: prev.nops + result.rewardNops, xp: prev.xp + result.rewardXp }));
+      appendLogs([makeLog(`Ops rewards: +${result.rewardNops} Ø and +${result.rewardXp} XP.`, 'success')]);
+    }
+  }
+
+  function onCraftGrowthCommand(left: string, right: string, useBoost: boolean) {
+    const result = craftCommand(growth, left, right, useBoost);
+    setGrowth(result.next);
+    appendLogs([
+      makeLog(
+        `Crafted ${result.resultKey} with trait chance ${Math.round(result.boostedChance * 10000) / 100}%${useBoost ? ' (boosted)' : ''}.`,
+        'info'
+      )
+    ]);
+  }
+
   async function onUploadProfilePhoto(file: File) {
     const maxSize = 1_000_000;
     if (file.size > maxSize) {
@@ -646,7 +697,7 @@ export function App() {
       <div className="desktop-wallpaper" />
       <header className="desktop-header">
         <div>
-          <p className="kicker">Aionous OS // Phase 9</p>
+          <p className="kicker">Aionous OS // Phase 10</p>
           <h2>Operator: {desktopIdentity}</h2>
         </div>
         <div className="header-metrics">
@@ -714,6 +765,7 @@ export function App() {
                   inPvpQueue,
                   activeMatch,
                   blockchain,
+                  growth,
                   identity: desktopIdentity,
                   setPlayer,
                   setCooldowns,
@@ -732,6 +784,10 @@ export function App() {
                   onBuyShares,
                   onSellShares,
                   onUpgradeBlockSecurity,
+                  onPickFaction,
+                  onStartGrowthContract,
+                  onResolveGrowthContract,
+                  onCraftGrowthCommand,
                   onUploadProfilePhoto
                 })}
               </div>
@@ -781,6 +837,7 @@ type RenderContext = {
   inPvpQueue: boolean;
   activeMatch: PvpMatchState | null;
   blockchain: BlockchainState;
+  growth: GrowthState;
   identity: string;
   setPlayer: (state: PlayerState) => void;
   setCooldowns: (cooldowns: Cooldowns) => void;
@@ -799,6 +856,10 @@ type RenderContext = {
   onBuyShares: (ticker: keyof BlockchainState['companies'], amount: number) => void;
   onSellShares: (ticker: keyof BlockchainState['companies'], amount: number) => void;
   onUpgradeBlockSecurity: (ticker: keyof BlockchainState['companies']) => void;
+  onPickFaction: (faction: FactionId) => void;
+  onStartGrowthContract: (contractId: string) => void;
+  onResolveGrowthContract: () => void;
+  onCraftGrowthCommand: (left: string, right: string, useBoost: boolean) => void;
   onUploadProfilePhoto: (file: File) => void;
 };
 
@@ -873,6 +934,16 @@ function renderWindowContent(id: AppId, ctx: RenderContext) {
           onBuy={ctx.onBuyShares}
           onSell={ctx.onSellShares}
           onUpgradeSecurity={ctx.onUpgradeBlockSecurity}
+        />
+      );
+    case 'growth':
+      return (
+        <GrowthApp
+          growth={ctx.growth}
+          onPickFaction={ctx.onPickFaction}
+          onStartContract={ctx.onStartGrowthContract}
+          onResolveContract={ctx.onResolveGrowthContract}
+          onCraft={ctx.onCraftGrowthCommand}
         />
       );
     case 'settings':

@@ -5,9 +5,42 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='0.9em' font-size='90'%3E%F0%9F%9B%A1%EF%B8%8F%3C/text%3E%3C/svg%3E" />
     <title>Aionous | RootAccess</title>
+    <style>
+      html, body { margin:0; min-height:100%; background:#050b14; color:#dffff4; font-family: Inter, system-ui, sans-serif; }
+      #boot-fallback { display:grid; place-items:center; min-height:100vh; text-align:center; padding:1rem; }
+      #boot-fallback .card { border:1px solid rgba(95,255,205,.35); border-radius:12px; padding:1rem; max-width:720px; background:rgba(4,18,26,.9); }
+      #boot-fallback.hidden { display:none; }
+      noscript { color:#ffb3c8; }
+    </style>
   </head>
   <body>
+    <div id="boot-fallback">
+      <div class="card">
+        <h1>ROOTACCESS booting...</h1>
+        <p>If the app does not render, hard refresh and clear cached site data.</p>
+        <p id="fallback-status">Initializing runtime...</p>
+      </div>
+    </div>
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <noscript>This app requires JavaScript enabled.</noscript>
+    <script>
+      window.setTimeout(function () {
+        var root = document.getElementById('root');
+        var status = document.getElementById('fallback-status');
+        if (root && root.childElementCount === 0 && status) {
+          status.textContent = 'Runtime still loading. If this persists, open browser console for errors and verify deploy path.';
+        }
+      }, 4500);
+      window.addEventListener('DOMContentLoaded', function () {
+        var fallback = document.getElementById('boot-fallback');
+        if (!fallback) return;
+        window.setTimeout(function () {
+          if (document.getElementById('root')?.childElementCount) {
+            fallback.classList.add('hidden');
+          }
+        }, 1500);
+      });
+    </script>
+    <script type="module" src="./src/main.tsx"></script>
   </body>
 </html>
