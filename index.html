@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='0.9em' font-size='90'%3E%F0%9F%9B%A1%EF%B8%8F%3C/text%3E%3C/svg%3E" />
     <title>Aionous | RootAccess</title>
+    <link rel="stylesheet" href="./assets/app.css" />
     <style>
       html, body { margin:0; min-height:100%; background:#030915; color:#dffff4; font-family: Inter, system-ui, sans-serif; }
       #boot-fallback {
@@ -105,10 +106,10 @@
 
         window.setTimeout(function () {
           if (mounted) return;
-          setStatus('Still waiting for runtime... If URL is your GitHub Pages root, ensure it serves build output (not markdown/source files).');
+          setStatus('Still waiting for runtime... Ensure this page can load ./assets/app.js and ./assets/app.css from the same path.');
         }, 4500);
       })();
     </script>
-    <script type="module" src="./src/main.tsx"></script>
+    <script type="module" src="./assets/app.js"></script>
   </body>
 </html>

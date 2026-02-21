@@ -33,3 +33,7 @@ If you only see the fallback card on GitHub Pages:
 - [x] Better boot diagnostics for non-rendering production builds.
 - [x] Settings app now performs visual customization live.
 - [x] Accessibility controls integrated into desktop rendering.
+
+## Hotfix follow-up
+- Added root-site runtime compatibility: `index.html` now loads `./assets/app.js` and `./assets/app.css` directly so GitHub Pages branch-source hosting still reaches the game (cutscene -> login -> desktop) instead of stalling on fallback.
+- Added `scripts/sync-root-bundle.mjs` + `npm run bundle:root` to sync the latest built bundle into root `assets/` for branch-source hosting.

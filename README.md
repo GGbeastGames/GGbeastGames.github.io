@@ -62,6 +62,7 @@ Build also creates `dist/404.html` + `dist/.nojekyll` for GitHub Pages SPA fallb
 - `docs/PHASE_12_ADMIN_LIVEOPS.md`
 - `docs/PHASE_13_STABILITY_GUI_ENHANCEMENTS.md`
 - `config/FIREBASE_RULES.md`
+- `config/FIREBASE_SETUP.md`
 - `docs/ASSET_PIPELINE.md`
 - `docs/ARCHITECTURE.md`
 - `docs/ECONOMY_BASELINE.md`
@@ -73,3 +74,7 @@ Build also creates `dist/404.html` + `dist/.nojekyll` for GitHub Pages SPA fallb
 2. Ensure workflow `.github/workflows/deploy-pages.yml` runs successfully and deploys `dist/` artifact.
 3. If previously configured to serve from `/docs` or branch root with markdown index, Pages can show a plain white/blank page instead of app runtime.
 4. After changing Pages source, hard refresh with cache clear (Ctrl/Cmd+Shift+R).
+
+
+## Root-site fallback compatibility
+If GitHub Pages is serving repository source instead of `dist/`, `index.html` now boots from `./assets/app.js` + `./assets/app.css` so users still reach cutscene/login/desktop instead of getting stuck on fallback.
