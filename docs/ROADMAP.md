@@ -12,7 +12,7 @@ Boot cutscene, Firebase auth, desktop shell, draggable window framework, and ses
 ## Phase 04 — Terminal Core Loop ✅
 Command parser and execution for `phish`, `scan`, `spoof` with cooldowns, rewards, penalties.
 
-## Phase 05 — Black Market + Index + Traits
+## Phase 05 — Black Market + Index + Traits ✅
 Unlock flow, command ownership UX, locked/missed states, and rare trait variants.
 
 ## Phase 06 — Profile + Missions + Retention

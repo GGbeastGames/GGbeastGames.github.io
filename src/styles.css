@@ -148,3 +148,25 @@ button:hover { background: rgba(57,255,185,.14); }
   .terminal-hud { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .terminal-command-grid { grid-template-columns: 1fr; }
 }
+
+.market-app, .index-app { display:grid; gap:.6rem; }
+.market-header-row { display:flex; justify-content:space-between; align-items:center; }
+.market-grid {
+  display:grid;
+  grid-template-columns: repeat(2, minmax(0,1fr));
+  gap:.5rem;
+}
+.market-grid article, .index-app section {
+  border:1px solid rgba(57,255,185,.24);
+  background:rgba(4,13,20,.8);
+  border-radius:8px;
+  padding:.5rem;
+}
+.market-grid h6, .index-app h5 { margin:.1rem 0 .35rem; color:#7affd1; }
+.market-grid p, .market-grid li, .index-app li, .index-app p { margin:.2rem 0; font-size:.8rem; color:#a5ddc8; }
+.index-controls { display:grid; grid-template-columns:1fr auto; gap:.5rem; }
+.index-app ul, .market-grid ol { margin:.2rem 0 .1rem; padding-left:1rem; }
+
+@media (max-width: 980px) {
+  .market-grid { grid-template-columns: 1fr; }
+}

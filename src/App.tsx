@@ -7,8 +7,21 @@ import {
   signOut
 } from 'firebase/auth';
 import { auth } from './config/firebase';
+import { BlackMarketApp } from './components/apps/BlackMarketApp';
+import { IndexApp } from './components/apps/IndexApp';
 import { TerminalApp } from './components/apps/TerminalApp';
 import { Cooldowns, PlayerState, TerminalLog, defaultCooldowns, defaultPlayerState, getSuccessRate, passiveTraceDecay } from './game/terminal';
+import {
+  ProgressionState,
+  ShopItem,
+  canUnlock,
+  defaultProgressionState,
+  defaultShopInventory,
+  getOwnedCommandKeys,
+  isShopItemAvailable,
+  randomTraitRoll,
+  toCommandKey
+} from './game/progression';
 
 type AppPhase = 'boot' | 'login' | 'desktop';
 type AppId = 'terminal' | 'market' | 'index' | 'profile' | 'settings';
@@ -31,6 +44,8 @@ type PersistedDesktop = {
   player: PlayerState;
   cooldowns: Cooldowns;
   logs: TerminalLog[];
+  progression: ProgressionState;
+  shopInventory: ShopItem[];
 };
 
 const STORAGE_KEY = 'aionous.desktop.v2';
@@ -69,6 +84,8 @@ function readPersisted(): PersistedDesktop {
     windows: seedWindows(),
     player: defaultPlayerState,
     cooldowns: defaultCooldowns,
+    progression: defaultProgressionState,
+    shopInventory: defaultShopInventory,
     logs: [
       makeLog('ROOTACCESS terminal online. Type `help` to list commands.', 'success'),
       makeLog('Mission set: run phish / scan / spoof to earn Ø.', 'info')
@@ -83,6 +100,8 @@ function readPersisted(): PersistedDesktop {
       windows: Array.isArray(parsed.windows) ? parsed.windows : defaults.windows,
       player: parsed.player ? { ...defaults.player, ...parsed.player } : defaults.player,
       cooldowns: parsed.cooldowns ? { ...defaults.cooldowns, ...parsed.cooldowns } : defaults.cooldowns,
+      progression: parsed.progression ? { ...defaults.progression, ...parsed.progression } : defaults.progression,
+      shopInventory: Array.isArray(parsed.shopInventory) ? parsed.shopInventory : defaults.shopInventory,
       logs: Array.isArray(parsed.logs) ? parsed.logs.slice(-MAX_LOGS) : defaults.logs
     };
   } catch {
@@ -96,6 +115,8 @@ export function App() {
   const [windows, setWindows] = useState<WindowState[]>(initial.windows);
   const [player, setPlayer] = useState<PlayerState>(initial.player);
   const [cooldowns, setCooldowns] = useState<Cooldowns>(initial.cooldowns);
+  const [progression, setProgression] = useState<ProgressionState>(initial.progression);
+  const [shopInventory] = useState<ShopItem[]>(initial.shopInventory);
   const [logs, setLogs] = useState<TerminalLog[]>(initial.logs);
 
   const [email, setEmail] = useState('');
@@ -128,10 +149,12 @@ export function App() {
         windows,
         player,
         cooldowns,
+        progression,
+        shopInventory,
         logs: logs.slice(-MAX_LOGS)
       } satisfies PersistedDesktop)
     );
-  }, [windows, player, cooldowns, logs]);
+  }, [windows, player, cooldowns, progression, shopInventory, logs]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -175,9 +198,68 @@ export function App() {
   const desktopIdentity = useMemo(() => (guestMode ? 'Guest Operator' : user?.email ?? 'Anonymous'), [guestMode, user]);
   const topZ = useMemo(() => Math.max(...windows.map((windowItem) => windowItem.z), 0), [windows]);
   const successRate = useMemo(() => Math.round(getSuccessRate(player) * 100), [player]);
+  const ownedCommandKeys = useMemo(() => getOwnedCommandKeys(progression.ownedCommands), [progression.ownedCommands]);
+  const availableShopItems = useMemo(
+    () => shopInventory.filter((item) => isShopItemAvailable(item)),
+    [shopInventory]
+  );
 
   function appendLogs(nextLogs: TerminalLog[]) {
     setLogs((prev) => [...prev, ...nextLogs].slice(-MAX_LOGS));
+  }
+
+  function onBuyMarketItem(itemId: string) {
+    const item = shopInventory.find((shopItem) => shopItem.id === itemId);
+    if (!item) return;
+    if (!isShopItemAvailable(item)) return;
+    if (player.nops < item.price) return;
+
+    setPlayer((prev) => ({ ...prev, nops: prev.nops - item.price }));
+    setProgression((prev) => ({
+      ...prev,
+      pendingLessons: [...prev.pendingLessons, item]
+    }));
+    appendLogs([makeLog(`Purchased ${item.baseId} ${item.type}. Complete lesson in market queue.`, 'success')]);
+  }
+
+  function onCompleteLesson(itemId: string) {
+    const pendingItem = progression.pendingLessons.find((item) => item.id === itemId);
+    if (!pendingItem) return;
+    const trait = randomTraitRoll();
+
+    setProgression((prev) => {
+      const nextOwned = [...prev.ownedCommands];
+      if (!canUnlock(nextOwned, pendingItem.baseId)) {
+        nextOwned.push({
+          instanceId: `${pendingItem.baseId}-${Date.now()}`,
+          baseId: pendingItem.baseId,
+          trait: null,
+          unlockedAt: Date.now(),
+          source: pendingItem.type
+        });
+      }
+
+      if (trait) {
+        nextOwned.push({
+          instanceId: `${pendingItem.baseId}-${trait}-${Date.now()}`,
+          baseId: pendingItem.baseId,
+          trait,
+          unlockedAt: Date.now(),
+          source: pendingItem.type
+        });
+      }
+
+      return {
+        ...prev,
+        ownedCommands: nextOwned,
+        pendingLessons: prev.pendingLessons.filter((item) => item.id !== itemId)
+      };
+    });
+
+    appendLogs([
+      makeLog(`Lesson complete: unlocked ${toCommandKey(pendingItem.baseId, null)}.`, 'success'),
+      ...(trait ? [makeLog(`Rare trait found! Unlocked ${toCommandKey(pendingItem.baseId, trait)}.`, 'success')] : [])
+    ]);
   }
 
   function bringToFront(id: AppId) {
@@ -314,7 +396,7 @@ export function App() {
       <div className="desktop-wallpaper" />
       <header className="desktop-header">
         <div>
-          <p className="kicker">Aionous OS // Phase 4</p>
+          <p className="kicker">Aionous OS // Phase 5</p>
           <h2>Operator: {desktopIdentity}</h2>
         </div>
         <div className="header-metrics">
@@ -363,7 +445,23 @@ export function App() {
                   </button>
                 </div>
               </header>
-              <div className="window-content">{renderWindowContent(w.id, { player, cooldowns, logs, setPlayer, setCooldowns, appendLogs, setLogs })}</div>
+              <div className="window-content">
+                {renderWindowContent(w.id, {
+                  player,
+                  cooldowns,
+                  logs,
+                  progression,
+                  shopInventory,
+                  availableShopItems,
+                  ownedCommandKeys,
+                  setPlayer,
+                  setCooldowns,
+                  appendLogs,
+                  setLogs,
+                  onBuyMarketItem,
+                  onCompleteLesson
+                })}
+              </div>
             </article>
           ))}
       </section>
@@ -399,10 +497,16 @@ type RenderContext = {
   player: PlayerState;
   cooldowns: Cooldowns;
   logs: TerminalLog[];
+  progression: ProgressionState;
+  shopInventory: ShopItem[];
+  availableShopItems: ShopItem[];
+  ownedCommandKeys: string[];
   setPlayer: (state: PlayerState) => void;
   setCooldowns: (cooldowns: Cooldowns) => void;
   appendLogs: (logs: TerminalLog[]) => void;
   setLogs: (next: TerminalLog[]) => void;
+  onBuyMarketItem: (itemId: string) => void;
+  onCompleteLesson: (itemId: string) => void;
 };
 
 function renderWindowContent(id: AppId, ctx: RenderContext) {
@@ -413,6 +517,7 @@ function renderWindowContent(id: AppId, ctx: RenderContext) {
           player={ctx.player}
           cooldowns={ctx.cooldowns}
           logs={ctx.logs}
+          ownedCommandKeys={ctx.ownedCommandKeys}
           onUpdate={(state, nextCooldowns, appendedLogs) => {
             ctx.setPlayer(state);
             ctx.setCooldowns(nextCooldowns);
@@ -423,19 +528,16 @@ function renderWindowContent(id: AppId, ctx: RenderContext) {
       );
     case 'market':
       return (
-        <div className="placeholder">
-          <h4>Black Market (Phase 5)</h4>
-          <p>Command lessons and software unlocks come next phase. Keep farming Ø in Terminal.</p>
-        </div>
+        <BlackMarketApp
+          player={ctx.player}
+          progression={ctx.progression}
+          inventory={ctx.availableShopItems}
+          onBuyItem={ctx.onBuyMarketItem}
+          onCompleteLesson={ctx.onCompleteLesson}
+        />
       );
     case 'index':
-      return (
-        <div className="placeholder">
-          <h4>Command Index</h4>
-          <p>Owned commands: phish, scan, spoof</p>
-          <p>Upcoming: trait commands and limited drops.</p>
-        </div>
-      );
+      return <IndexApp progression={ctx.progression} catalog={ctx.shopInventory} />;
     case 'profile':
       return (
         <div className="profile-metrics">
