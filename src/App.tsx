@@ -1,46 +1,102 @@
-import { Checklist } from './components/Checklist';
+import assetManifest from './data/assetManifest.json';
+import { CyberWindow } from './components/ui/CyberWindow';
+import { TokenCard } from './components/ui/TokenCard';
+import { freeAssetSources, libraryShortlist } from './data/libraryShortlist';
+import { themeTokens } from './theme/tokens';
 
-const documents = [
-  { label: '12-Phase Roadmap', path: 'docs/ROADMAP.md' },
-  { label: 'Architecture Blueprint', path: 'docs/ARCHITECTURE.md' },
-  { label: 'Economy Baseline', path: 'docs/ECONOMY_BASELINE.md' },
-  { label: 'Phase 1 Definition of Done', path: 'docs/PHASE_01_CHECKLIST.md' }
+const docs = [
+  'docs/PHASE_01_CHECKLIST.md',
+  'docs/ROADMAP.md',
+  'docs/ARCHITECTURE.md',
+  'docs/ECONOMY_BASELINE.md',
+  'docs/PHASE_02_VISUAL_SYSTEM.md',
+  'docs/ASSET_PIPELINE.md'
 ];
+
+const sampleAssets = assetManifest.packs.webgl.files.slice(0, 8);
+const sampleSounds = assetManifest.packs.sounds.files.slice(0, 8);
 
 export function App() {
   return (
     <main className="desktop">
       <header className="hero panel">
         <p className="kicker">Aionous / RootAccess</p>
-        <h1>Phase 1 Foundation Build</h1>
+        <h1>Phase 2 — Visual Identity + Asset Pipeline</h1>
         <p>
-          Initial project scaffold is live with architecture, economy baseline, and a 12-phase delivery
-          blueprint for the full hacker desktop game.
+          Built a reusable cyberpunk UI kit, tokenized theme system, and generated manifest pipeline for
+          local Webgl and Sounds folders.
         </p>
       </header>
 
-      <Checklist />
+      <div className="window-grid">
+        <CyberWindow title="Design Tokens" subtitle="Core palette and visual consistency values">
+          <div className="token-grid">
+            {Object.entries(themeTokens.colors).map(([label, value]) => (
+              <TokenCard key={label} label={label} value={value} />
+            ))}
+          </div>
+        </CyberWindow>
 
-      <section className="panel">
-        <h2>Blueprint Documents</h2>
-        <ul>
-          {documents.map((doc) => (
-            <li key={doc.path}>
-              <a href={doc.path} target="_blank" rel="noreferrer">
-                {doc.label}
-              </a>
-            </li>
-          ))}
-        </ul>
-      </section>
+        <CyberWindow title="Asset Inventory" subtitle="Auto-generated from local project resources">
+          <p className="statline">
+            Webgl assets: <strong>{assetManifest.packs.webgl.count}</strong>
+          </p>
+          <p className="statline">
+            Sounds assets: <strong>{assetManifest.packs.sounds.count}</strong>
+          </p>
 
-      <section className="panel">
-        <h2>Asset Sources Activated</h2>
-        <p>
-          Local project assets will be sourced from <code>/Webgl</code> for images/UI textures and{' '}
-          <code>/Sounds</code> for SFX in upcoming phases.
-        </p>
-      </section>
+          <h4>Webgl sample</h4>
+          <ul>
+            {sampleAssets.map((file) => (
+              <li key={file.path}>{file.path}</li>
+            ))}
+          </ul>
+
+          <h4>Sounds sample</h4>
+          <ul>
+            {sampleSounds.map((file) => (
+              <li key={file.path}>{file.path}</li>
+            ))}
+          </ul>
+        </CyberWindow>
+
+        <CyberWindow title="Free Tooling from Internet" subtitle="Low-friction libraries for Phase 3+">
+          <ul>
+            {libraryShortlist.map((entry) => (
+              <li key={entry.name}>
+                <a href={entry.url} target="_blank" rel="noreferrer">
+                  {entry.name}
+                </a>{' '}
+                — {entry.use}
+              </li>
+            ))}
+          </ul>
+
+          <h4>Free asset sources</h4>
+          <ul>
+            {freeAssetSources.map((entry) => (
+              <li key={entry.name}>
+                <a href={entry.url} target="_blank" rel="noreferrer">
+                  {entry.name}
+                </a>{' '}
+                — {entry.type}
+              </li>
+            ))}
+          </ul>
+        </CyberWindow>
+
+        <CyberWindow title="Blueprint Docs" subtitle="Phase-by-phase build guidance">
+          <ul>
+            {docs.map((doc) => (
+              <li key={doc}>
+                <a href={doc} target="_blank" rel="noreferrer">
+                  {doc}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </CyberWindow>
+      </div>
     </main>
   );
 }

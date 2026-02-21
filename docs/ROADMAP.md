@@ -1,9 +1,9 @@
 # Aionous 12-Phase Build Roadmap
 
-## Phase 01 — Foundation
+## Phase 01 — Foundation ✅
 Scaffold, architecture, economy baseline, and rules of engagement for a $0 deployment model.
 
-## Phase 02 — Visual Identity System
+## Phase 02 — Visual Identity System ✅
 Neon cyberpunk design tokens, reusable panels, typography, and asset pipeline from `/Webgl` and `/Sounds`.
 
 ## Phase 03 — Login + Desktop OS
