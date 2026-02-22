@@ -17,22 +17,22 @@ function withTimeout(promise, ms, timeoutMessage) {
   ]);
 }
 
+async function getFirebaseApp() {
+  const { initializeApp, getApps } = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js');
+  return getApps().length ? getApps()[0] : initializeApp(FIREBASE_CONFIG);
+}
+
 export async function initFirebaseAuthBridge({ onStatus = () => {} } = {}) {
   onStatus('loading');
 
   try {
-    const [{ initializeApp, getApps }, authMod] = await withTimeout(
-      Promise.all([
-        import('https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js'),
-        import('https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js'),
-      ]),
+    const [app, authMod] = await withTimeout(
+      Promise.all([getFirebaseApp(), import('https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js')]),
       7000,
       'firebase sdk load timeout'
     );
 
-    const app = getApps().length ? getApps()[0] : initializeApp(FIREBASE_CONFIG);
     const auth = authMod.getAuth(app);
-
     onStatus('online');
 
     return {
@@ -80,6 +80,72 @@ export async function initFirebaseAuthBridge({ onStatus = () => {} } = {}) {
       },
     };
   }
+}
+
+export async function initFirebaseDataBridge({ uid, onStatus = () => {} } = {}) {
+  onStatus('loading');
+
+  if (!uid) {
+    onStatus('offline');
+    return offlineDataBridge('Missing user uid for data bridge initialization.');
+  }
+
+  try {
+    const [app, firestoreMod] = await withTimeout(
+      Promise.all([getFirebaseApp(), import('https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js')]),
+      7000,
+      'firebase firestore sdk load timeout'
+    );
+
+    const db = firestoreMod.getFirestore(app);
+    const stateRef = firestoreMod.doc(db, 'users', uid, 'meta', 'gameState');
+
+    onStatus('online');
+
+    return {
+      mode: 'online',
+      async loadState() {
+        try {
+          const snapshot = await firestoreMod.getDoc(stateRef);
+          if (!snapshot.exists()) return { ok: true, state: null };
+          return { ok: true, state: snapshot.data() };
+        } catch (error) {
+          return { ok: false, message: `load failed: ${String(error)}` };
+        }
+      },
+      async saveState(state) {
+        try {
+          await firestoreMod.setDoc(
+            stateRef,
+            {
+              nops: Number(state?.nops || 0),
+              ownedCommands: Array.isArray(state?.ownedCommands) ? state.ownedCommands : [],
+              updatedAt: Date.now(),
+            },
+            { merge: true }
+          );
+          return { ok: true };
+        } catch (error) {
+          return { ok: false, message: `save failed: ${String(error)}` };
+        }
+      },
+    };
+  } catch (error) {
+    onStatus('offline');
+    return offlineDataBridge('Firestore unavailable. Using local state only.');
+  }
+}
+
+function offlineDataBridge(message) {
+  return {
+    mode: 'offline',
+    async loadState() {
+      return { ok: false, message };
+    },
+    async saveState() {
+      return { ok: false, message };
+    },
+  };
 }
 
 function mapFirebaseAuthError(error) {

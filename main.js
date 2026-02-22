@@ -1,4 +1,4 @@
-import { initFirebaseAuthBridge } from "./src/core/firebase-client.js";
+import { initFirebaseAuthBridge, initFirebaseDataBridge } from "./src/core/firebase-client.js";
 import { createTerminalEngine } from "./src/core/terminal-engine.js";
 
 const ENTRY_HTML = "index.html";
@@ -28,7 +28,23 @@ const windowState = {
 };
 
 let authBridge = null;
+let dataBridge = null;
+let currentUser = null;
 const terminalEngine = createTerminalEngine();
+
+const COMMAND_CATALOG = [
+  { id: "phish", label: "phish", price: 0, tier: 1, description: "Starter phishing probe. Base payout: 1-5 Ø." },
+  { id: "spoof", label: "spoof", price: 25, tier: 1, description: "Identity spoofing utility for future chains." },
+  { id: "scrape", label: "scrape", price: 40, tier: 2, description: "Harvest low-tier public intel blocks." },
+  { id: "pivot", label: "pivot", price: 75, tier: 2, description: "Lateral movement helper for advanced hacks." },
+];
+
+const playerState = {
+  nops: 50,
+  ownedCommands: new Set(["phish"]),
+};
+
+const stateListeners = new Set();
 
 const appCatalog = {
   terminal: { title: "Terminal", subtitle: "Command shell and live logs" },
@@ -220,6 +236,75 @@ function bringToFront(appId) {
   win.element.style.zIndex = String(win.z);
 }
 
+
+function getOwnedCommandsSorted() {
+  return COMMAND_CATALOG.filter((command) => playerState.ownedCommands.has(command.id));
+}
+
+function getLockedCommandsSorted() {
+  return COMMAND_CATALOG.filter((command) => !playerState.ownedCommands.has(command.id));
+}
+
+function subscribePlayerState(listener) {
+  stateListeners.add(listener);
+  return () => stateListeners.delete(listener);
+}
+
+function notifyPlayerState() {
+  stateListeners.forEach((listener) => {
+    try {
+      listener();
+    } catch (error) {
+      logDiagnostic('warn', 'state listener failed', { error: String(error) });
+    }
+  });
+}
+
+async function hydratePlayerStateFromCloud() {
+  if (!dataBridge || dataBridge.mode !== 'online') {
+    notifyPlayerState();
+    return;
+  }
+
+  const loaded = await dataBridge.loadState();
+  if (!loaded.ok || !loaded.state) {
+    notifyPlayerState();
+    return;
+  }
+
+  if (Number.isFinite(Number(loaded.state.nops))) {
+    playerState.nops = Math.max(0, Number(loaded.state.nops));
+  }
+
+  const cloudCommands = Array.isArray(loaded.state.ownedCommands) ? loaded.state.ownedCommands : [];
+  const valid = cloudCommands.filter((id) => COMMAND_CATALOG.some((command) => command.id === id));
+  playerState.ownedCommands = new Set(valid.length ? valid : ["phish"]);
+
+  notifyPlayerState();
+}
+
+async function persistPlayerStateToCloud() {
+  if (!dataBridge || dataBridge.mode !== 'online') return;
+  await dataBridge.saveState({
+    nops: playerState.nops,
+    ownedCommands: Array.from(playerState.ownedCommands),
+  });
+}
+
+function purchaseCommand(commandId) {
+  const command = COMMAND_CATALOG.find((c) => c.id === commandId);
+  if (!command) return { ok: false, message: 'Unknown command.' };
+  if (playerState.ownedCommands.has(command.id)) return { ok: false, message: `${command.label} already owned.` };
+  if (playerState.nops < command.price) return { ok: false, message: `Need ${command.price} Ø for ${command.label}.` };
+
+  playerState.nops -= command.price;
+  playerState.ownedCommands.add(command.id);
+  notifyPlayerState();
+  persistPlayerStateToCloud();
+
+  return { ok: true, message: `Purchased ${command.label} for ${command.price} Ø.` };
+}
+
 function createLogLine(text, level = "normal") {
   const line = document.createElement("div");
   line.className = `terminal-log terminal-log--${level}`;
@@ -295,19 +380,115 @@ function createTerminalWindowView() {
   return wrapper;
 }
 
+function createBlackMarketWindowView() {
+  const wrapper = document.createElement("section");
+  wrapper.className = "app-window-body market-app";
+
+  const title = document.createElement("h2");
+  title.textContent = "Black Market";
+
+  const wallet = document.createElement("p");
+  wallet.className = "market-wallet";
+
+  const message = document.createElement("p");
+  message.className = "market-message";
+
+  const list = document.createElement("div");
+  list.className = "market-list";
+
+  const render = () => {
+    wallet.textContent = `Wallet: ${playerState.nops} Ø`;
+    list.innerHTML = "";
+
+    COMMAND_CATALOG.forEach((command) => {
+      const row = document.createElement("article");
+      row.className = "market-item";
+
+      const owned = playerState.ownedCommands.has(command.id);
+      row.innerHTML = `
+        <div>
+          <strong>${command.label}</strong>
+          <p>${command.description}</p>
+          <small>Tier ${command.tier} · Price ${command.price} Ø</small>
+        </div>
+      `;
+
+      const buy = document.createElement("button");
+      buy.className = "market-buy";
+      buy.type = "button";
+      buy.disabled = owned;
+      buy.textContent = owned ? "Owned" : "Buy";
+      buy.addEventListener("click", () => {
+        const result = purchaseCommand(command.id);
+        message.textContent = result.message;
+      });
+
+      row.appendChild(buy);
+      list.appendChild(row);
+    });
+  };
+
+  render();
+  subscribePlayerState(render);
+
+  wrapper.append(title, wallet, message, list);
+  return wrapper;
+}
+
+function createIndexWindowView() {
+  const wrapper = document.createElement("section");
+  wrapper.className = "app-window-body index-app";
+
+  const title = document.createElement("h2");
+  title.textContent = "Command Index";
+
+  const ownedTitle = document.createElement("h3");
+  ownedTitle.textContent = "Owned Commands";
+  const ownedList = document.createElement("ul");
+  ownedList.className = "index-list";
+
+  const lockedTitle = document.createElement("h3");
+  lockedTitle.textContent = "Locked Commands";
+  const lockedList = document.createElement("ul");
+  lockedList.className = "index-list";
+
+  const render = () => {
+    ownedList.innerHTML = "";
+    lockedList.innerHTML = "";
+
+    getOwnedCommandsSorted().forEach((command) => {
+      const li = document.createElement("li");
+      li.textContent = `${command.label} (tier ${command.tier})`;
+      ownedList.appendChild(li);
+    });
+
+    getLockedCommandsSorted().forEach((command) => {
+      const li = document.createElement("li");
+      li.textContent = `${command.label} (cost ${command.price} Ø)`;
+      lockedList.appendChild(li);
+    });
+  };
+
+  render();
+  subscribePlayerState(render);
+
+  wrapper.append(title, ownedTitle, ownedList, lockedTitle, lockedList);
+  return wrapper;
+}
+
 function renderWindowBody(appId) {
   const appDef = appCatalog[appId] || { title: "Unknown App", subtitle: "No app metadata found." };
 
-  if (appId === "terminal") {
-    return createTerminalWindowView();
-  }
+  if (appId === "terminal") return createTerminalWindowView();
+  if (appId === "market") return createBlackMarketWindowView();
+  if (appId === "index") return createIndexWindowView();
 
   const container = document.createElement("div");
   container.className = "app-window-body";
   container.innerHTML = `
     <h2>${appDef.title}</h2>
     <p>${appDef.subtitle}</p>
-    <p class="hint">Phase 6 running: terminal command system now active.</p>
+    <p class="hint">Phase 7 running: market/index systems active with player-state sync.</p>
   `;
   return container;
 }
@@ -707,6 +888,17 @@ function initLoginFlow() {
     }
 
     logDiagnostic('log', 'user authenticated', { uid: result.user?.uid, email: result.user?.email });
+    currentUser = result.user || null;
+
+    dataBridge = await initFirebaseDataBridge({
+      uid: currentUser?.uid,
+      onStatus(status) {
+        logDiagnostic('log', 'firebase data bridge status', { status });
+      },
+    });
+
+    await hydratePlayerStateFromCloud();
+
     loginError.textContent = "";
     showDesktopAfterLogin();
   });

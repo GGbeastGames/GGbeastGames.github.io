@@ -589,3 +589,71 @@ body {
   color: var(--text-muted);
   font-size: 0.84rem;
 }
+
+.market-app,
+.index-app {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.market-app h2,
+.index-app h2,
+.index-app h3 {
+  margin: 0;
+}
+
+.market-wallet {
+  margin: 0;
+  color: var(--accent-secondary);
+}
+
+.market-message {
+  margin: 0;
+  color: #ffe3b6;
+  min-height: 1.1rem;
+}
+
+.market-list {
+  display: grid;
+  gap: 0.45rem;
+  max-height: 250px;
+  overflow: auto;
+}
+
+.market-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.55rem;
+  border: 1px solid rgba(16, 234, 176, 0.2);
+  border-radius: 8px;
+  background: rgba(5, 18, 22, 0.88);
+  padding: 0.5rem;
+}
+
+.market-item p,
+.market-item small {
+  margin: 0.2rem 0 0;
+  color: var(--text-secondary);
+}
+
+.market-buy {
+  border: 1px solid rgba(16, 234, 176, 0.35);
+  border-radius: 8px;
+  background: var(--state-normal);
+  color: var(--text-primary);
+  min-width: 78px;
+  cursor: pointer;
+}
+
+.market-buy:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.index-list {
+  margin: 0;
+  padding-left: 1rem;
+  display: grid;
+  gap: 0.2rem;
+  color: var(--text-secondary);
+}
