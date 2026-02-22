@@ -261,12 +261,29 @@ export function App() {
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
   const [user, setUser] = useState<User | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [bootTimerElapsed, setBootTimerElapsed] = useState(false);
   const [cloudAdmin, setCloudAdmin] = useState(false);
   const [cloudHydrated, setCloudHydrated] = useState(false);
 
   const dragRef = useRef<{ id: AppId; offsetX: number; offsetY: number } | null>(null);
   const cloudApplyRef = useRef(false);
   const prevAuthUidRef = useRef<string | null>(null);
+  const phaseRef = useRef<AppPhase>('boot');
+  const userRef = useRef<User | null>(null);
+  const authReadyRef = useRef(false);
+
+  useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
+
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
+
+  useEffect(() => {
+    authReadyRef.current = authReady;
+  }, [authReady]);
 
   function loadStateFromCache(storageKey: string) {
     const cached = readPersisted(storageKey);
@@ -287,13 +304,28 @@ export function App() {
   }
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setPhase('login'), BOOT_MS);
+    const timer = window.setTimeout(() => {
+      if (phaseRef.current === 'desktop') return;
+      setBootTimerElapsed(true);
+      if (authReadyRef.current && !userRef.current) {
+        setPhase('login');
+      }
+    }, BOOT_MS);
     return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
+    if (!bootTimerElapsed || phase === 'desktop') return;
+    if (authReady && !user) {
+      setPhase('login');
+    }
+  }, [bootTimerElapsed, phase, authReady, user]);
+
+  useEffect(() => {
     let unsub: () => void = () => {};
+    let cancelled = false;
     void authPersistenceReady.then(() => {
+      if (cancelled) return;
       unsub = onAuthStateChanged(auth, (nextUser) => {
         const nextUid = nextUser?.uid ?? null;
         const prevUid = prevAuthUidRef.current;
@@ -305,10 +337,14 @@ export function App() {
         }
         prevAuthUidRef.current = nextUid;
         setUser(nextUser);
+        setAuthReady(true);
         if (nextUser) setPhase('desktop');
       });
     });
-    return () => unsub();
+    return () => {
+      cancelled = true;
+      unsub();
+    };
   }, []);
 
   useEffect(() => {
@@ -1004,7 +1040,7 @@ export function App() {
     setPhase('login');
   }
 
-  if (phase === 'boot') {
+  if (phase === 'boot' || !authReady) {
     return (
       <main className="boot-screen">
         <div className="matrix-rain" aria-hidden="true" />
