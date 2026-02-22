@@ -8,7 +8,8 @@ import {
 } from 'firebase/auth';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { onValue, ref as dbRef, remove, set } from 'firebase/database';
-import { auth, rtdb, storage } from './config/firebase';
+import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
+import { auth, db, rtdb, storage } from './config/firebase';
 import { BlackMarketApp } from './components/apps/BlackMarketApp';
 import { BlockchainApp } from './components/apps/BlockchainApp';
 import { CasinoApp } from './components/apps/CasinoApp';
@@ -96,6 +97,42 @@ type PersistedDesktop = {
   season: SeasonState;
   admin: AdminState;
   displaySettings: DisplaySettings;
+};
+
+
+type CloudPlayerCard = {
+  schemaVersion: number;
+  profile: {
+    email: string;
+    alias: string;
+    photoURL: string | null;
+  };
+  roles: {
+    admin: boolean;
+    moderator: boolean;
+  };
+  economy: {
+    nops: number;
+    flux: number;
+    trace: number;
+    level: number;
+    xp: number;
+  };
+  stats: {
+    totalRuns: number;
+    successfulRuns: number;
+    rankedPoints: number;
+    streakDays: number;
+  };
+  progression: {
+    ownedCommandCount: number;
+    pendingLessonCount: number;
+  };
+  desktopState: PersistedDesktop;
+  meta: {
+    source: 'aionous-client';
+    updatedAt: unknown;
+  };
 };
 
 const STORAGE_KEY = 'aionous.desktop.v4';
@@ -226,8 +263,11 @@ export function App() {
   const [authLoading, setAuthLoading] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [guestMode, setGuestMode] = useState(false);
+  const [cloudAdmin, setCloudAdmin] = useState(false);
+  const [cloudHydrated, setCloudHydrated] = useState(false);
 
   const dragRef = useRef<{ id: AppId; offsetX: number; offsetY: number } | null>(null);
+  const cloudApplyRef = useRef(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setPhase('login'), BOOT_MS);
@@ -241,6 +281,179 @@ export function App() {
     });
     return () => unsub();
   }, []);
+
+  useEffect(() => {
+    if (!user || guestMode) {
+      setCloudHydrated(false);
+      setCloudAdmin(false);
+      return;
+    }
+
+    const playerRef = doc(db, 'players', user.uid);
+    const unsub = onSnapshot(playerRef, async (snapshot) => {
+      if (!snapshot.exists()) {
+        const bootstrap: Partial<CloudPlayerCard> = {
+          schemaVersion: 1,
+          profile: {
+            email: user.email ?? '',
+            alias: user.email ?? 'Operator',
+            photoURL: null
+          },
+          roles: { admin: false, moderator: false },
+          economy: {
+            nops: player.nops,
+            flux: casino.flux,
+            trace: player.trace,
+            level: player.level,
+            xp: player.xp
+          },
+          stats: {
+            totalRuns: player.totalRuns,
+            successfulRuns: player.totalSuccess,
+            rankedPoints: ranked.rankedPoints,
+            streakDays: retention.streakDays
+          },
+          progression: {
+            ownedCommandCount: progression.ownedCommands.length,
+            pendingLessonCount: progression.pendingLessons.length
+          },
+          desktopState: {
+            windows,
+            player,
+            cooldowns,
+            logs: logs.slice(-MAX_LOGS),
+            progression,
+            shopInventory,
+            retention,
+            casino,
+            ranked,
+            blockchain,
+            growth,
+            season,
+            admin,
+            displaySettings
+          },
+          meta: {
+            source: 'aionous-client',
+            updatedAt: serverTimestamp()
+          }
+        };
+
+        await setDoc(playerRef, bootstrap, { merge: true });
+        setCloudHydrated(true);
+        return;
+      }
+
+      const data = snapshot.data() as Partial<CloudPlayerCard>;
+      setCloudAdmin(Boolean(data.roles?.admin));
+
+      if (data.desktopState) {
+        const remote = data.desktopState;
+        cloudApplyRef.current = true;
+        setWindows(Array.isArray(remote.windows) ? remote.windows : seedWindows());
+        if (remote.player) setPlayer((prev) => ({ ...prev, ...remote.player }));
+        if (remote.cooldowns) setCooldowns((prev) => ({ ...prev, ...remote.cooldowns }));
+        if (remote.progression) setProgression((prev) => ({ ...prev, ...remote.progression }));
+        if (Array.isArray(remote.shopInventory)) setShopInventory(remote.shopInventory);
+        if (remote.retention) setRetention((prev) => ({ ...prev, ...remote.retention }));
+        if (remote.casino) setCasino((prev) => ({ ...prev, ...remote.casino }));
+        if (remote.ranked) setRanked((prev) => ({ ...prev, ...remote.ranked }));
+        if (remote.blockchain) setBlockchain((prev) => ({ ...prev, ...remote.blockchain }));
+        if (remote.growth) setGrowth((prev) => ({ ...prev, ...remote.growth }));
+        if (remote.season) setSeason((prev) => ({ ...prev, ...remote.season }));
+        if (remote.admin) setAdmin((prev) => ({ ...prev, ...remote.admin }));
+        if (remote.displaySettings) setDisplaySettings((prev) => ({ ...prev, ...remote.displaySettings }));
+        if (Array.isArray(remote.logs)) setLogs(remote.logs.slice(-MAX_LOGS));
+        window.setTimeout(() => {
+          cloudApplyRef.current = false;
+        }, 0);
+      }
+
+      setCloudHydrated(true);
+    });
+
+    return () => unsub();
+  }, [user, guestMode]);
+
+  useEffect(() => {
+    if (!user || guestMode || !cloudHydrated || cloudApplyRef.current) return;
+
+    const timer = window.setTimeout(() => {
+      const playerRef = doc(db, 'players', user.uid);
+      const payload: Partial<CloudPlayerCard> = {
+        schemaVersion: 1,
+        profile: {
+          email: user.email ?? '',
+          alias: user.email ?? 'Operator',
+          photoURL: null
+        },
+        roles: {
+          admin: cloudAdmin,
+          moderator: false
+        },
+        economy: {
+          nops: player.nops,
+          flux: casino.flux,
+          trace: player.trace,
+          level: player.level,
+          xp: player.xp
+        },
+        stats: {
+          totalRuns: player.totalRuns,
+          successfulRuns: player.totalSuccess,
+          rankedPoints: ranked.rankedPoints,
+          streakDays: retention.streakDays
+        },
+        progression: {
+          ownedCommandCount: progression.ownedCommands.length,
+          pendingLessonCount: progression.pendingLessons.length
+        },
+        desktopState: {
+          windows,
+          player,
+          cooldowns,
+          logs: logs.slice(-MAX_LOGS),
+          progression,
+          shopInventory,
+          retention,
+          casino,
+          ranked,
+          blockchain,
+          growth,
+          season,
+          admin,
+          displaySettings
+        },
+        meta: {
+          source: 'aionous-client',
+          updatedAt: serverTimestamp()
+        }
+      };
+
+      void setDoc(playerRef, payload, { merge: true });
+    }, 500);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    user,
+    guestMode,
+    cloudHydrated,
+    cloudAdmin,
+    windows,
+    player,
+    cooldowns,
+    logs,
+    progression,
+    shopInventory,
+    retention,
+    casino,
+    ranked,
+    blockchain,
+    growth,
+    season,
+    admin,
+    displaySettings
+  ]);
 
   useEffect(() => {
     localStorage.setItem(
@@ -342,8 +555,8 @@ export function App() {
       .filter(Boolean);
     const email = user?.email?.toLowerCase() ?? '';
     const override = localStorage.getItem('aionous.admin') === 'true';
-    return override || (!!email && allow.includes(email));
-  }, [user]);
+    return cloudAdmin || override || (!!email && allow.includes(email));
+  }, [user, cloudAdmin]);
   const topZ = useMemo(() => Math.max(...windows.map((windowItem) => windowItem.z), 0), [windows]);
   const successRate = useMemo(() => Math.round(getSuccessRate(player) * 100), [player]);
   const ownedCommandKeys = useMemo(() => getOwnedCommandKeys(progression.ownedCommands), [progression.ownedCommands]);

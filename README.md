@@ -63,6 +63,7 @@ Build also creates `dist/404.html` + `dist/.nojekyll` for GitHub Pages SPA fallb
 - `docs/PHASE_13_STABILITY_GUI_ENHANCEMENTS.md`
 - `config/FIREBASE_RULES.md`
 - `config/FIREBASE_SETUP.md`
+- `config/FIRESTORE_PLAYER_CARD_SCHEMA.md`
 - `docs/ASSET_PIPELINE.md`
 - `docs/ARCHITECTURE.md`
 - `docs/ECONOMY_BASELINE.md`
@@ -78,3 +79,7 @@ Build also creates `dist/404.html` + `dist/.nojekyll` for GitHub Pages SPA fallb
 
 ## Root-site fallback compatibility
 If GitHub Pages is serving repository source instead of `dist/`, `index.html` now boots from `./assets/app.js` + `./assets/app.css` so users still reach cutscene/login/desktop instead of getting stuck on fallback.
+
+
+## Phase 1 data sync (Firestore player card)
+Signed-in users now bootstrap and sync a `players/{uid}` document (profile, roles, economy, stats, progression, and desktop state). Guest mode remains local-only.

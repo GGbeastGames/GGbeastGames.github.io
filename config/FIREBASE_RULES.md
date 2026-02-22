@@ -22,7 +22,10 @@ service cloud.firestore {
     match /players/{uid} {
       allow read: if isOwner(uid) || isAdmin();
       allow create: if isOwner(uid);
-      allow update: if isOwner(uid) || isAdmin();
+      allow update: if isAdmin()
+        || (isOwner(uid)
+          && request.resource.data.roles.admin == resource.data.roles.admin
+          && request.resource.data.roles.moderator == resource.data.roles.moderator);
       allow delete: if isAdmin();
     }
 
