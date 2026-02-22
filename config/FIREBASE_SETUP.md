@@ -34,5 +34,13 @@ VITE_FIREBASE_MEASUREMENT_ID=
 
 > Firebase Storage is intentionally **not** configured in this client.
 
+## Required console checks (important)
+1. In **Authentication → Sign-in method**, enable Email/Password.
+2. In **Firestore Database**, ensure the DB is created in the same project as your app config.
+3. Publish Firestore rules from `config/FIREBASE_RULES.md`.
+4. Verify the web app keys in Firebase console match this project's `VITE_FIREBASE_*` values.
+
+If these are not aligned, login may work but player docs may fail to create/read.
+
 ## Security rules
 - Firestore rule templates are in `config/FIREBASE_RULES.md`.

@@ -141,6 +141,28 @@ function getStorageKey(uid?: string | null): string {
   return uid ? `${STORAGE_KEY}.user.${uid}` : `${STORAGE_KEY}.signed-out`;
 }
 
+function createDefaultDesktopState(): PersistedDesktop {
+  return {
+    windows: seedWindows(),
+    player: defaultPlayerState,
+    cooldowns: defaultCooldowns,
+    progression: defaultProgressionState,
+    shopInventory: defaultShopInventory,
+    retention: defaultRetentionState,
+    casino: defaultCasinoState,
+    ranked: defaultRankedState,
+    blockchain: defaultBlockchainState,
+    growth: defaultGrowthState,
+    season: defaultSeasonState,
+    admin: defaultAdminState,
+    displaySettings: defaultDisplaySettings,
+    logs: [
+      makeLog('ROOTACCESS terminal online. Type `help` to list commands.', 'success'),
+      makeLog('Mission set: run command loops, then claim mission rewards in Profile.', 'info')
+    ]
+  };
+}
+
 const appTemplates: Record<AppId, Omit<WindowState, 'isOpen' | 'isMinimized' | 'isMaximized' | 'z'>> = {
   terminal: { id: 'terminal', title: 'Terminal', x: 50, y: 90, width: 700, height: 460 },
   market: { id: 'market', title: 'Black Market', x: 190, y: 120, width: 500, height: 340 },
@@ -266,6 +288,7 @@ export function App() {
   const [user, setUser] = useState<User | null>(null);
   const [cloudAdmin, setCloudAdmin] = useState(false);
   const [cloudHydrated, setCloudHydrated] = useState(false);
+  const [cloudSyncError, setCloudSyncError] = useState('');
 
   const dragRef = useRef<{ id: AppId; offsetX: number; offsetY: number } | null>(null);
   const cloudApplyRef = useRef(false);
@@ -307,6 +330,7 @@ export function App() {
           setActiveMatch(null);
         }
         prevAuthUidRef.current = nextUid;
+        setCloudSyncError('');
         setUser(nextUser);
         if (nextUser) setPhase('desktop');
       });
@@ -318,91 +342,95 @@ export function App() {
     if (!user) {
       setCloudHydrated(false);
       setCloudAdmin(false);
+      setCloudSyncError('');
       return;
     }
 
     const playerRef = doc(db, 'players', user.uid);
-    const unsub = onSnapshot(playerRef, async (snapshot) => {
-      if (!snapshot.exists()) {
-        const bootstrap: Partial<CloudPlayerCard> = {
-          schemaVersion: 1,
-          profile: {
-            email: user.email ?? '',
-            alias: user.email ?? 'Operator',
-            photoURL: null
-          },
-          roles: { admin: false, moderator: false },
-          economy: {
-            nops: player.nops,
-            flux: casino.flux,
-            trace: player.trace,
-            level: player.level,
-            xp: player.xp
-          },
-          stats: {
-            totalRuns: player.totalRuns,
-            successfulRuns: player.totalSuccess,
-            rankedPoints: ranked.rankedPoints,
-            streakDays: retention.streakDays
-          },
-          progression: {
-            ownedCommandCount: progression.ownedCommands.length,
-            pendingLessonCount: progression.pendingLessons.length
-          },
-          desktopState: {
-            windows,
-            player,
-            cooldowns,
-            logs: logs.slice(-MAX_LOGS),
-            progression,
-            shopInventory,
-            retention,
-            casino,
-            ranked,
-            blockchain,
-            growth,
-            season,
-            admin,
-            displaySettings
-          },
-          meta: {
-            source: 'aionous-client',
-            updatedAt: serverTimestamp()
+    const unsub = onSnapshot(
+      playerRef,
+      async (snapshot) => {
+        try {
+          if (!snapshot.exists()) {
+            const seededDesktop = readPersisted(getStorageKey(user.uid));
+            const bootstrap: Partial<CloudPlayerCard> = {
+              schemaVersion: 1,
+              profile: {
+                email: user.email ?? '',
+                alias: user.email ?? 'Operator',
+                photoURL: null
+              },
+              roles: { admin: false, moderator: false },
+              economy: {
+                nops: seededDesktop.player.nops,
+                flux: seededDesktop.casino.flux,
+                trace: seededDesktop.player.trace,
+                level: seededDesktop.player.level,
+                xp: seededDesktop.player.xp
+              },
+              stats: {
+                totalRuns: seededDesktop.player.totalRuns,
+                successfulRuns: seededDesktop.player.totalSuccess,
+                rankedPoints: seededDesktop.ranked.rankedPoints,
+                streakDays: seededDesktop.retention.streakDays
+              },
+              progression: {
+                ownedCommandCount: seededDesktop.progression.ownedCommands.length,
+                pendingLessonCount: seededDesktop.progression.pendingLessons.length
+              },
+              desktopState: seededDesktop,
+              meta: {
+                source: 'aionous-client',
+                updatedAt: serverTimestamp()
+              }
+            };
+
+            await setDoc(playerRef, bootstrap, { merge: true });
+            cloudApplyRef.current = true;
+            loadStateFromCache(getStorageKey(user.uid));
+            window.setTimeout(() => {
+              cloudApplyRef.current = false;
+            }, 0);
+            setCloudHydrated(true);
+            return;
           }
-        };
 
-        await setDoc(playerRef, bootstrap, { merge: true });
-        setCloudHydrated(true);
-        return;
+          const data = snapshot.data() as Partial<CloudPlayerCard>;
+          setCloudAdmin(Boolean(data.roles?.admin));
+
+          const remote = data.desktopState ?? createDefaultDesktopState();
+          cloudApplyRef.current = true;
+          setWindows(Array.isArray(remote.windows) ? remote.windows : seedWindows());
+          if (remote.player) setPlayer((prev) => ({ ...prev, ...remote.player }));
+          if (remote.cooldowns) setCooldowns((prev) => ({ ...prev, ...remote.cooldowns }));
+          if (remote.progression) setProgression((prev) => ({ ...prev, ...remote.progression }));
+          if (Array.isArray(remote.shopInventory)) setShopInventory(remote.shopInventory);
+          if (remote.retention) setRetention((prev) => ({ ...prev, ...remote.retention }));
+          if (remote.casino) setCasino((prev) => ({ ...prev, ...remote.casino }));
+          if (remote.ranked) setRanked((prev) => ({ ...prev, ...remote.ranked }));
+          if (remote.blockchain) setBlockchain((prev) => ({ ...prev, ...remote.blockchain }));
+          if (remote.growth) setGrowth((prev) => ({ ...prev, ...remote.growth }));
+          if (remote.season) setSeason((prev) => ({ ...prev, ...remote.season }));
+          if (remote.admin) setAdmin((prev) => ({ ...prev, ...remote.admin }));
+          if (remote.displaySettings) setDisplaySettings((prev) => ({ ...prev, ...remote.displaySettings }));
+          if (Array.isArray(remote.logs)) setLogs(remote.logs.slice(-MAX_LOGS));
+          window.setTimeout(() => {
+            cloudApplyRef.current = false;
+          }, 0);
+
+          setCloudHydrated(true);
+          setCloudSyncError('');
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : 'Unknown Firestore error';
+          setCloudSyncError(reason);
+          setCloudHydrated(false);
+        }
+      },
+      (error) => {
+        setCloudSyncError(error.message);
+        setCloudHydrated(false);
       }
-
-      const data = snapshot.data() as Partial<CloudPlayerCard>;
-      setCloudAdmin(Boolean(data.roles?.admin));
-
-      if (data.desktopState) {
-        const remote = data.desktopState;
-        cloudApplyRef.current = true;
-        setWindows(Array.isArray(remote.windows) ? remote.windows : seedWindows());
-        if (remote.player) setPlayer((prev) => ({ ...prev, ...remote.player }));
-        if (remote.cooldowns) setCooldowns((prev) => ({ ...prev, ...remote.cooldowns }));
-        if (remote.progression) setProgression((prev) => ({ ...prev, ...remote.progression }));
-        if (Array.isArray(remote.shopInventory)) setShopInventory(remote.shopInventory);
-        if (remote.retention) setRetention((prev) => ({ ...prev, ...remote.retention }));
-        if (remote.casino) setCasino((prev) => ({ ...prev, ...remote.casino }));
-        if (remote.ranked) setRanked((prev) => ({ ...prev, ...remote.ranked }));
-        if (remote.blockchain) setBlockchain((prev) => ({ ...prev, ...remote.blockchain }));
-        if (remote.growth) setGrowth((prev) => ({ ...prev, ...remote.growth }));
-        if (remote.season) setSeason((prev) => ({ ...prev, ...remote.season }));
-        if (remote.admin) setAdmin((prev) => ({ ...prev, ...remote.admin }));
-        if (remote.displaySettings) setDisplaySettings((prev) => ({ ...prev, ...remote.displaySettings }));
-        if (Array.isArray(remote.logs)) setLogs(remote.logs.slice(-MAX_LOGS));
-        window.setTimeout(() => {
-          cloudApplyRef.current = false;
-        }, 0);
-      }
-
-      setCloudHydrated(true);
-    });
+    );
 
     return () => unsub();
   }, [user]);
@@ -994,7 +1022,6 @@ export function App() {
       } else {
         await createUserWithEmailAndPassword(auth, email, password);
       }
-      setPhase('desktop');
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : 'Authentication failed');
     } finally {
@@ -1095,6 +1122,7 @@ export function App() {
         </button>
       </header>
 
+      {cloudSyncError ? <div className="global-banner">Firestore sync error: {cloudSyncError}</div> : null}
       {admin.globalBanner ? <div className="global-banner">{admin.globalBanner}</div> : null}
 
       <section className="window-layer">
