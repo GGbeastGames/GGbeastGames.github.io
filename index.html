@@ -22,35 +22,64 @@
     </div>
 
     <div id="root" class="app-root" hidden>
-      <div class="desktop-backdrop" aria-hidden="true">
-        <div class="grid-overlay"></div>
-        <div class="scanline-overlay"></div>
-        <div class="noise-overlay"></div>
+      <div id="experience-layer" class="experience-layer">
+        <section id="intro-screen" class="intro-screen" aria-label="intro cutscene">
+          <div class="intro-card">
+            <h1>ROOTACCESS</h1>
+            <p id="intro-stream" class="intro-stream">Initializing secure channel…</p>
+            <button id="skip-intro" class="intro-btn" type="button">Skip</button>
+          </div>
+        </section>
+
+        <section id="login-screen" class="login-screen" hidden aria-label="login screen">
+          <form id="login-form" class="login-card" novalidate>
+            <h2>ACCESS TERMINAL</h2>
+            <label>
+              Neural_ID
+              <input id="neural-id" name="neuralId" type="text" autocomplete="username" required />
+            </label>
+            <label>
+              Decrypt-Key
+              <input id="decrypt-key" name="decryptKey" type="password" autocomplete="current-password" required />
+            </label>
+            <button id="login-submit" type="submit">Authenticate</button>
+            <p class="login-note">Secure sign-in only. Account auth wiring via Firebase is in the next task phase.</p>
+            <p id="login-error" class="login-error" role="alert" aria-live="polite"></p>
+          </form>
+        </section>
       </div>
 
-      <header class="desktop-topbar">
-        <div class="brand">ROOTACCESS</div>
-        <div class="status" id="boot-status">BOOTING…</div>
-      </header>
+      <div id="desktop-shell" class="desktop-shell" hidden>
+        <div class="desktop-backdrop" aria-hidden="true">
+          <div class="grid-overlay"></div>
+          <div class="scanline-overlay"></div>
+          <div class="noise-overlay"></div>
+        </div>
 
-      <main class="desktop-surface" id="desktop-surface" aria-label="RootAccess desktop shell">
-        <section class="window-layer" id="window-layer" aria-label="window manager layer"></section>
-      </main>
+        <header class="desktop-topbar">
+          <div class="brand">ROOTACCESS</div>
+          <div class="status" id="boot-status">AUTH REQUIRED</div>
+        </header>
 
-      <aside class="quick-panel" id="quick-panel" aria-label="render settings">
-        <button class="quick-toggle" id="effects-toggle" type="button" aria-pressed="true">
-          Effects: ON
-        </button>
-        <span class="quality-chip" id="quality-chip">Quality: Balanced</span>
-      </aside>
+        <main class="desktop-surface" id="desktop-surface" aria-label="RootAccess desktop shell">
+          <section class="window-layer" id="window-layer" aria-label="window manager layer"></section>
+        </main>
 
-      <footer class="taskbar" aria-label="Taskbar">
-        <button class="taskbar-app" data-app="terminal">Terminal</button>
-        <button class="taskbar-app" data-app="market">Black Market</button>
-        <button class="taskbar-app" data-app="index">Index</button>
-        <button class="taskbar-app" data-app="settings">Settings</button>
-        <button class="taskbar-app" data-app="admin">Admin</button>
-      </footer>
+        <aside class="quick-panel" id="quick-panel" aria-label="render settings">
+          <button class="quick-toggle" id="effects-toggle" type="button" aria-pressed="true">
+            Effects: ON
+          </button>
+          <span class="quality-chip" id="quality-chip">Quality: Balanced</span>
+        </aside>
+
+        <footer class="taskbar" aria-label="Taskbar">
+          <button class="taskbar-app" data-app="terminal">Terminal</button>
+          <button class="taskbar-app" data-app="market">Black Market</button>
+          <button class="taskbar-app" data-app="index">Index</button>
+          <button class="taskbar-app" data-app="settings">Settings</button>
+          <button class="taskbar-app" data-app="admin">Admin</button>
+        </footer>
+      </div>
     </div>
 
     <script type="module" src="./main.js"></script>

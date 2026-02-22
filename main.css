@@ -48,10 +48,106 @@ body {
 .app-root {
   position: relative;
   isolation: isolate;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+.experience-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+}
+
+.intro-screen,
+.login-screen {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: radial-gradient(circle at 60% 40%, rgba(26, 73, 86, 0.35), rgba(3, 10, 13, 0.95));
+}
+
+.intro-card,
+.login-card {
+  width: min(92vw, 480px);
+  border: 1px solid rgba(16, 234, 176, 0.25);
+  border-radius: var(--radius-lg);
+  background: rgba(5, 22, 28, 0.9);
+  box-shadow: var(--shadow-soft), var(--shadow-neon);
+  padding: 1rem;
+}
+
+.intro-card h1,
+.login-card h2 {
+  margin: 0 0 0.6rem;
+  color: var(--accent-primary);
+  letter-spacing: 0.08em;
+}
+
+.intro-stream {
+  margin: 0 0 0.8rem;
+  color: var(--text-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  min-height: 2.5em;
+}
+
+.intro-btn,
+.login-card button {
+  border: 1px solid rgba(16, 234, 176, 0.35);
+  background: var(--state-normal);
+  color: var(--text-primary);
+  border-radius: 9px;
+  padding: 0.55rem 0.8rem;
+  cursor: pointer;
+}
+
+.intro-btn:hover,
+.login-card button:hover {
+  border-color: var(--accent-primary);
+  background: var(--state-hover);
+}
+
+.login-card {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.login-card label {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--text-secondary);
+}
+
+.login-card input {
+  border: 1px solid rgba(16, 234, 176, 0.3);
+  border-radius: 9px;
+  background: rgba(4, 17, 21, 0.95);
+  color: var(--text-primary);
+  padding: 0.55rem 0.65rem;
+}
+
+.login-card input:focus {
+  outline: 1px solid var(--accent-primary);
+}
+
+.login-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.login-error {
+  margin: 0;
+  color: #ffd4e2;
+  min-height: 1.2rem;
+}
+
+.desktop-shell {
+  position: relative;
   display: grid;
   grid-template-rows: var(--topbar-height) 1fr auto;
   min-height: 100vh;
-  overflow: hidden;
 }
 
 .desktop-backdrop {
@@ -162,6 +258,7 @@ body {
   padding: 0.52rem 0.62rem;
   cursor: grab;
   user-select: none;
+  touch-action: none;
 }
 
 .window-header.dragging {
@@ -231,6 +328,41 @@ body {
 
 .window-error {
   color: #ffd5e3;
+}
+
+.resize-handle {
+  position: absolute;
+  background: rgba(16, 234, 176, 0.4);
+  opacity: 0.15;
+}
+
+.resize-handle:hover {
+  opacity: 0.55;
+}
+
+.resize-handle-e {
+  right: -2px;
+  top: 28px;
+  width: 8px;
+  height: calc(100% - 28px);
+  cursor: ew-resize;
+}
+
+.resize-handle-s {
+  left: 0;
+  bottom: -2px;
+  height: 8px;
+  width: 100%;
+  cursor: ns-resize;
+}
+
+.resize-handle-se {
+  right: -3px;
+  bottom: -3px;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  opacity: 0.45;
 }
 
 .quick-panel {
@@ -374,3 +506,5 @@ body {
     display: none;
   }
 }
+
+[hidden] { display: none !important; }

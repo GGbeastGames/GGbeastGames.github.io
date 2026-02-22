@@ -1,37 +1,30 @@
-type DiagnosticLevel = "log" | "warn" | "error";
-
-type WindowRecord = {
-  appId: string;
-  element: HTMLElement;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  minimized: boolean;
-  maximized: boolean;
-  restoreRect: null | { x: number; y: number; width: number; height: number };
-  z: number;
-};
-
 const ENTRY_HTML = "index.html";
 const REQUIRED_DOM_IDS = [
   "root",
   "boot-fallback",
   "boot-status",
-  "desktop-surface",
   "window-layer",
   "effects-toggle",
   "quality-chip",
+  "intro-screen",
+  "skip-intro",
+  "login-screen",
+  "login-form",
+  "neural-id",
+  "decrypt-key",
+  "login-error",
+  "desktop-shell",
 ];
 const WINDOW_STORE_KEY = "rootaccess.windows.v1";
 
-const diagnostics: Array<{ timestamp: string; level: DiagnosticLevel; message: string; context: Record<string, unknown> }> = [];
-const windowState: { windows: Map<string, WindowRecord>; zCounter: number } = {
+const diagnostics = [];
+const windowState = {
   windows: new Map(),
   zCounter: 10,
+  desktopInitialized: false,
 };
 
-const appCatalog: Record<string, { title: string; subtitle: string }> = {
+const appCatalog = {
   terminal: { title: "Terminal", subtitle: "Command shell and live logs" },
   market: { title: "Black Market", subtitle: "Acquire command lessons and software" },
   index: { title: "Index", subtitle: "Owned + locked command catalogue" },
@@ -39,7 +32,7 @@ const appCatalog: Record<string, { title: string; subtitle: string }> = {
   admin: { title: "Admin", subtitle: "Role-restricted live-ops console (placeholder)" },
 };
 
-function logDiagnostic(level: DiagnosticLevel, message: string, context: Record<string, unknown> = {}): void {
+function logDiagnostic(level, message, context = {}) {
   const payload = {
     timestamp: new Date().toISOString(),
     level,
@@ -51,21 +44,19 @@ function logDiagnostic(level: DiagnosticLevel, message: string, context: Record<
   console[method]("[RootAccess Boot]", payload);
 }
 
-function getEl(id: string): HTMLElement | null {
+function getEl(id) {
   return document.getElementById(id);
 }
 
-function setBootMessage(message: string, options: { isError?: boolean } = {}): void {
+function setBootMessage(message, { isError = false } = {}) {
   const bootFallback = getEl("boot-fallback");
   if (!bootFallback) return;
   bootFallback.textContent = message;
   bootFallback.classList.add("boot-fallback--visible");
-  if (options.isError) {
-    bootFallback.style.borderColor = "rgba(255, 92, 138, 0.8)";
-  }
+  if (isError) bootFallback.style.borderColor = "rgba(255, 92, 138, 0.8)";
 }
 
-function failBoot(message: string, context: Record<string, unknown> = {}): void {
+function failBoot(message, context = {}) {
   logDiagnostic("error", message, context);
   setBootMessage(`RootAccess failed to initialize: ${message}. Check entry file and script paths.`, {
     isError: true,
@@ -74,7 +65,7 @@ function failBoot(message: string, context: Record<string, unknown> = {}): void 
   if (root) root.hidden = true;
 }
 
-function guardAgainstWrongEntryPath(): boolean {
+function guardAgainstWrongEntryPath() {
   const path = window.location.pathname.toLowerCase();
   const badExt = [".md", ".txt", ".json"];
 
@@ -83,7 +74,7 @@ function guardAgainstWrongEntryPath(): boolean {
     return false;
   }
 
-  const script = document.querySelector<HTMLScriptElement>('script[src$="main.js"]');
+  const script = document.querySelector('script[src$="main.js"]');
   if (!script) {
     failBoot("main.js module script tag missing", { expectedScript: "./main.js" });
     return false;
@@ -102,7 +93,7 @@ function guardAgainstWrongEntryPath(): boolean {
   return true;
 }
 
-function ensureDomContract(): boolean {
+function ensureDomContract() {
   const missing = REQUIRED_DOM_IDS.filter((id) => !getEl(id));
   if (missing.length > 0) {
     failBoot("required root DOM nodes missing", { missing });
@@ -111,7 +102,7 @@ function ensureDomContract(): boolean {
   return true;
 }
 
-function computeQualityTier(): string {
+function computeQualityTier() {
   const smallScreen = window.innerWidth < 680;
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -120,7 +111,7 @@ function computeQualityTier(): string {
   return "Balanced";
 }
 
-function initRenderingPipeline(): void {
+function initRenderingPipeline() {
   const root = getEl("root");
   const effectsToggle = getEl("effects-toggle");
   const qualityChip = getEl("quality-chip");
@@ -152,7 +143,7 @@ function initRenderingPipeline(): void {
   });
 }
 
-function getWindowLayerBounds(): { width: number; height: number; left: number; top: number } {
+function getWindowLayerBounds() {
   const layer = getEl("window-layer");
   if (!layer) return { width: 1200, height: 720, left: 0, top: 0 };
   const rect = layer.getBoundingClientRect();
@@ -164,11 +155,11 @@ function getWindowLayerBounds(): { width: number; height: number; left: number; 
   };
 }
 
-function clamp(value: number, min: number, max: number): number {
+function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
-function getDefaultWindowRect(index = 0): { x: number; y: number; width: number; height: number } {
+function getDefaultWindowRect(index = 0) {
   const bounds = getWindowLayerBounds();
   const width = clamp(Math.floor(bounds.width * 0.48), 320, 760);
   const height = clamp(Math.floor(bounds.height * 0.48), 220, 520);
@@ -181,7 +172,7 @@ function getDefaultWindowRect(index = 0): { x: number; y: number; width: number;
   };
 }
 
-function saveWindowLayout(): void {
+function saveWindowLayout() {
   try {
     const payload = Array.from(windowState.windows.values()).map((w) => ({
       appId: w.appId,
@@ -198,7 +189,7 @@ function saveWindowLayout(): void {
   }
 }
 
-function loadWindowLayout(): Array<any> {
+function loadWindowLayout() {
   try {
     const raw = localStorage.getItem(WINDOW_STORE_KEY);
     if (!raw) return [];
@@ -210,7 +201,7 @@ function loadWindowLayout(): Array<any> {
   }
 }
 
-function bringToFront(appId: string): void {
+function bringToFront(appId) {
   const win = windowState.windows.get(appId);
   if (!win) return;
   windowState.zCounter += 1;
@@ -218,33 +209,28 @@ function bringToFront(appId: string): void {
   win.element.style.zIndex = String(win.z);
 }
 
-function renderWindowBody(appId: string): HTMLElement {
+function renderWindowBody(appId) {
   const appDef = appCatalog[appId] || { title: "Unknown App", subtitle: "No app metadata found." };
   const container = document.createElement("div");
   container.className = "app-window-body";
 
-  try {
-    container.innerHTML = `
-      <h2>${appDef.title}</h2>
-      <p>${appDef.subtitle}</p>
-      <p class="hint">Window manager task complete: drag, minimize, maximize, focus, and persist position.</p>
-    `;
-  } catch (error) {
-    container.innerHTML = `<p class="window-error">Window content failed to render safely.</p>`;
-    logDiagnostic("error", "window content render failed", { appId, error: String(error) });
-  }
+  container.innerHTML = `
+    <h2>${appDef.title}</h2>
+    <p>${appDef.subtitle}</p>
+    <p class="hint">Task 4 note: cutscene/login flow is active before desktop mount.</p>
+  `;
 
   return container;
 }
 
-function applyWindowRect(win: WindowRecord): void {
+function applyWindowRect(win) {
   win.element.style.left = `${Math.round(win.x)}px`;
   win.element.style.top = `${Math.round(win.y)}px`;
   win.element.style.width = `${Math.round(win.width)}px`;
   win.element.style.height = `${Math.round(win.height)}px`;
 }
 
-function clampWindow(win: WindowRecord): void {
+function clampWindow(win) {
   const bounds = getWindowLayerBounds();
 
   if (win.maximized) {
@@ -263,35 +249,31 @@ function clampWindow(win: WindowRecord): void {
   applyWindowRect(win);
 }
 
-function clampAllWindows(): void {
-  for (const win of windowState.windows.values()) {
-    clampWindow(win);
-  }
+function clampAllWindows() {
+  for (const win of windowState.windows.values()) clampWindow(win);
   saveWindowLayout();
 }
 
-function toggleMinimize(appId: string): void {
+function toggleMinimize(appId) {
   const win = windowState.windows.get(appId);
   if (!win) return;
   win.minimized = !win.minimized;
   win.element.classList.toggle("window-hidden", win.minimized);
-  const taskbarBtn = document.querySelector<HTMLButtonElement>(`.taskbar-app[data-app="${appId}"]`);
+  const taskbarBtn = document.querySelector(`.taskbar-app[data-app="${appId}"]`);
   if (taskbarBtn) taskbarBtn.classList.toggle("taskbar-app--active", !win.minimized);
   if (!win.minimized) bringToFront(appId);
   saveWindowLayout();
 }
 
-function toggleMaximize(appId: string): void {
+function toggleMaximize(appId) {
   const win = windowState.windows.get(appId);
   if (!win) return;
 
   if (!win.maximized) {
     win.restoreRect = { x: win.x, y: win.y, width: win.width, height: win.height };
     win.maximized = true;
-    win.element.classList.add("window-maximized");
   } else {
     win.maximized = false;
-    win.element.classList.remove("window-maximized");
     if (win.restoreRect) {
       win.x = win.restoreRect.x;
       win.y = win.restoreRect.y;
@@ -305,44 +287,113 @@ function toggleMaximize(appId: string): void {
   saveWindowLayout();
 }
 
-function attachDragHandlers(win: WindowRecord, handle: HTMLElement): void {
-  let drag: null | { offsetX: number; offsetY: number } = null;
+function attachDragHandlers(win, handle) {
+  let dragState = null;
 
-  const onPointerMove = (event: PointerEvent): void => {
-    if (!drag || win.maximized) return;
-
+  const onPointerMove = (event) => {
+    if (!dragState || win.maximized) return;
     const bounds = getWindowLayerBounds();
-    win.x = clamp(event.clientX - bounds.left - drag.offsetX, 0, bounds.width - win.width);
-    win.y = clamp(event.clientY - bounds.top - drag.offsetY, 0, bounds.height - win.height);
+    win.x = clamp(event.clientX - bounds.left - dragState.offsetX, 0, bounds.width - win.width);
+    win.y = clamp(event.clientY - bounds.top - dragState.offsetY, 0, bounds.height - win.height);
     applyWindowRect(win);
   };
 
-  const onPointerUp = (): void => {
-    if (!drag) return;
-    drag = null;
-    handle.classList.remove("dragging");
+  const onPointerUp = () => {
+    if (!dragState) return;
+    dragState.handle.classList.remove("dragging");
+    try {
+      dragState.handle.releasePointerCapture(dragState.pointerId);
+    } catch (_e) {
+      /* noop */
+    }
+    dragState = null;
     window.removeEventListener("pointermove", onPointerMove);
+    window.removeEventListener("pointerup", onPointerUp);
     saveWindowLayout();
   };
 
-  handle.addEventListener("pointerdown", (event: PointerEvent) => {
+  handle.addEventListener("pointerdown", (event) => {
     if (event.button !== 0 || win.maximized) return;
     bringToFront(win.appId);
     const rect = win.element.getBoundingClientRect();
-    drag = {
+    dragState = {
+      pointerId: event.pointerId,
       offsetX: event.clientX - rect.left,
       offsetY: event.clientY - rect.top,
+      handle,
     };
     handle.classList.add("dragging");
+    try {
+      handle.setPointerCapture(event.pointerId);
+    } catch (_e) {
+      /* noop */
+    }
     window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp, { once: true });
+    window.addEventListener("pointerup", onPointerUp);
   });
 }
 
-function createWindow(appId: string, presetRect: any = null): void {
+function attachResizeHandlers(win, element) {
+  const handles = element.querySelectorAll(".resize-handle");
+
+  handles.forEach((handle) => {
+    let resizeState = null;
+
+    const onPointerMove = (event) => {
+      if (!resizeState || win.maximized) return;
+      const bounds = getWindowLayerBounds();
+      const dx = event.clientX - resizeState.startX;
+      const dy = event.clientY - resizeState.startY;
+
+      if (resizeState.dir.includes("e")) {
+        win.width = clamp(resizeState.startWidth + dx, 320, bounds.width - win.x);
+      }
+      if (resizeState.dir.includes("s")) {
+        win.height = clamp(resizeState.startHeight + dy, 220, bounds.height - win.y);
+      }
+
+      applyWindowRect(win);
+    };
+
+    const onPointerUp = () => {
+      if (!resizeState) return;
+      try {
+        resizeState.handle.releasePointerCapture(resizeState.pointerId);
+      } catch (_e) {
+        /* noop */
+      }
+      resizeState = null;
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      saveWindowLayout();
+    };
+
+    handle.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || win.maximized) return;
+      bringToFront(win.appId);
+      resizeState = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        startWidth: win.width,
+        startHeight: win.height,
+        dir: handle.dataset.resize || "se",
+        handle,
+      };
+      try {
+        handle.setPointerCapture(event.pointerId);
+      } catch (_e) {
+        /* noop */
+      }
+      window.addEventListener("pointermove", onPointerMove);
+      window.addEventListener("pointerup", onPointerUp);
+    });
+  });
+}
+
+function createWindow(appId, presetRect = null) {
   if (windowState.windows.has(appId)) {
     const existing = windowState.windows.get(appId);
-    if (!existing) return;
     existing.minimized = false;
     existing.element.classList.remove("window-hidden");
     bringToFront(appId);
@@ -377,10 +428,20 @@ function createWindow(appId: string, presetRect: any = null): void {
   `;
 
   const body = renderWindowBody(appId);
-  element.append(header, body);
+  const resizeE = document.createElement("div");
+  resizeE.className = "resize-handle resize-handle-e";
+  resizeE.dataset.resize = "e";
+  const resizeS = document.createElement("div");
+  resizeS.className = "resize-handle resize-handle-s";
+  resizeS.dataset.resize = "s";
+  const resizeSE = document.createElement("div");
+  resizeSE.className = "resize-handle resize-handle-se";
+  resizeSE.dataset.resize = "se";
+
+  element.append(header, body, resizeE, resizeS, resizeSE);
   layer.appendChild(element);
 
-  const win: WindowRecord = {
+  const win = {
     appId,
     element,
     x: defaultRect.x,
@@ -400,18 +461,19 @@ function createWindow(appId: string, presetRect: any = null): void {
 
   element.addEventListener("pointerdown", () => bringToFront(appId));
   attachDragHandlers(win, header);
+  attachResizeHandlers(win, element);
 
-  header.querySelector<HTMLButtonElement>('[data-action="minimize"]')?.addEventListener("click", () => toggleMinimize(appId));
-  header.querySelector<HTMLButtonElement>('[data-action="maximize"]')?.addEventListener("click", () => toggleMaximize(appId));
+  header.querySelector('[data-action="minimize"]').addEventListener("click", () => toggleMinimize(appId));
+  header.querySelector('[data-action="maximize"]').addEventListener("click", () => toggleMaximize(appId));
 
-  const taskbarBtn = document.querySelector<HTMLButtonElement>(`.taskbar-app[data-app="${appId}"]`);
+  const taskbarBtn = document.querySelector(`.taskbar-app[data-app="${appId}"]`);
   if (taskbarBtn) taskbarBtn.classList.add("taskbar-app--active");
 
   saveWindowLayout();
 }
 
-function initTaskbarAndWindows(): void {
-  const buttons = document.querySelectorAll<HTMLButtonElement>(".taskbar-app");
+function initTaskbarAndWindows() {
+  const buttons = document.querySelectorAll(".taskbar-app");
   buttons.forEach((button) => {
     button.addEventListener("click", () => {
       const appId = button.dataset.app;
@@ -419,11 +481,8 @@ function initTaskbarAndWindows(): void {
 
       const existing = windowState.windows.get(appId);
       if (existing) {
-        if (existing.minimized) {
-          toggleMinimize(appId);
-        } else {
-          bringToFront(appId);
-        }
+        if (existing.minimized) toggleMinimize(appId);
+        else bringToFront(appId);
         return;
       }
 
@@ -435,12 +494,8 @@ function initTaskbarAndWindows(): void {
   stored.forEach((savedWin) => {
     if (!appCatalog[savedWin.appId]) return;
     createWindow(savedWin.appId, savedWin);
-    if (savedWin.maximized) {
-      toggleMaximize(savedWin.appId);
-    }
-    if (savedWin.minimized) {
-      toggleMinimize(savedWin.appId);
-    }
+    if (savedWin.maximized) toggleMaximize(savedWin.appId);
+    if (savedWin.minimized) toggleMinimize(savedWin.appId);
   });
 
   if (windowState.windows.size === 0) {
@@ -449,22 +504,109 @@ function initTaskbarAndWindows(): void {
   }
 }
 
-function mountDesktopShell(): void {
-  const root = getEl("root");
-  const bootFallback = getEl("boot-fallback");
+function showDesktopAfterLogin() {
+  const experienceLayer = getEl("experience-layer");
+  const introScreen = getEl("intro-screen");
+  const loginScreen = getEl("login-screen");
+  const desktopShell = getEl("desktop-shell");
   const bootStatus = getEl("boot-status");
 
-  if (!root || !bootFallback || !bootStatus) {
-    failBoot("desktop shell mount failed due to missing DOM refs");
+  if (introScreen) introScreen.hidden = true;
+  if (loginScreen) loginScreen.hidden = true;
+  if (experienceLayer) experienceLayer.hidden = true;
+  if (desktopShell) desktopShell.hidden = false;
+  if (bootStatus) bootStatus.textContent = "ONLINE";
+
+  if (!windowState.desktopInitialized) {
+    windowState.desktopInitialized = true;
+    initTaskbarAndWindows();
+  }
+}
+
+function validateLoginInput(neuralId, decryptKey) {
+  if (!neuralId || neuralId.trim().length < 3) return "Neural_ID must be at least 3 characters.";
+  if (!decryptKey || decryptKey.length < 6) return "Decrypt-Key must be at least 6 characters.";
+  return "";
+}
+
+function initLoginFlow() {
+  const introScreen = getEl("intro-screen");
+  const skipIntro = getEl("skip-intro");
+  const introStream = getEl("intro-stream");
+  const loginScreen = getEl("login-screen");
+  const loginForm = getEl("login-form");
+  const loginError = getEl("login-error");
+  const neuralId = getEl("neural-id");
+  const decryptKey = getEl("decrypt-key");
+
+  if (!introScreen || !skipIntro || !introStream || !loginScreen || !loginForm || !loginError || !neuralId || !decryptKey) {
+    failBoot("intro/login flow failed to initialize due to missing nodes");
+    return;
+  }
+
+  const introLines = [
+    "Handshake established with relay-04…",
+    "Decrypting protocol signatures…",
+    "Hardening session route…",
+    "Neural gate ready.",
+  ];
+
+  let introIndex = 0;
+  const introInterval = window.setInterval(() => {
+    introStream.textContent = introLines[introIndex % introLines.length];
+    introIndex += 1;
+  }, 720);
+
+  const revealLogin = () => {
+    window.clearInterval(introInterval);
+    introScreen.hidden = true;
+    loginScreen.hidden = false;
+    neuralId.focus();
+  };
+
+  const introTimer = window.setTimeout(revealLogin, 3200);
+
+  skipIntro.addEventListener("click", () => {
+    window.clearTimeout(introTimer);
+    revealLogin();
+  });
+
+  loginForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    loginError.textContent = "";
+
+    const neuralValue = neuralId.value;
+    const decryptValue = decryptKey.value;
+    const validation = validateLoginInput(neuralValue, decryptValue);
+    if (validation) {
+      loginError.textContent = validation;
+      return;
+    }
+
+    loginError.textContent = "Authenticating secure session…";
+    window.setTimeout(() => {
+      loginError.textContent = "";
+      showDesktopAfterLogin();
+    }, 550);
+  });
+}
+
+function mountExperienceShell() {
+  const root = getEl("root");
+  const bootFallback = getEl("boot-fallback");
+
+  if (!root || !bootFallback) {
+    failBoot("root shell mount failed due to missing root nodes");
     return;
   }
 
   root.hidden = false;
   bootFallback.classList.remove("boot-fallback--visible");
-  bootStatus.textContent = "ONLINE";
+
+  initLoginFlow();
 }
 
-function installGlobalErrorGuards(): void {
+function installGlobalErrorGuards() {
   window.addEventListener("error", (event) => {
     failBoot("runtime error during startup", {
       message: event.message,
@@ -481,15 +623,14 @@ function installGlobalErrorGuards(): void {
   });
 }
 
-function boot(): void {
+function boot() {
   installGlobalErrorGuards();
 
   if (!guardAgainstWrongEntryPath()) return;
   if (!ensureDomContract()) return;
 
   initRenderingPipeline();
-  mountDesktopShell();
-  initTaskbarAndWindows();
+  mountExperienceShell();
 }
 
 boot();

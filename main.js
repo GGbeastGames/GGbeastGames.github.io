@@ -3,10 +3,17 @@ const REQUIRED_DOM_IDS = [
   "root",
   "boot-fallback",
   "boot-status",
-  "desktop-surface",
   "window-layer",
   "effects-toggle",
   "quality-chip",
+  "intro-screen",
+  "skip-intro",
+  "login-screen",
+  "login-form",
+  "neural-id",
+  "decrypt-key",
+  "login-error",
+  "desktop-shell",
 ];
 const WINDOW_STORE_KEY = "rootaccess.windows.v1";
 
@@ -14,6 +21,7 @@ const diagnostics = [];
 const windowState = {
   windows: new Map(),
   zCounter: 10,
+  desktopInitialized: false,
 };
 
 const appCatalog = {
@@ -45,9 +53,7 @@ function setBootMessage(message, { isError = false } = {}) {
   if (!bootFallback) return;
   bootFallback.textContent = message;
   bootFallback.classList.add("boot-fallback--visible");
-  if (isError) {
-    bootFallback.style.borderColor = "rgba(255, 92, 138, 0.8)";
-  }
+  if (isError) bootFallback.style.borderColor = "rgba(255, 92, 138, 0.8)";
 }
 
 function failBoot(message, context = {}) {
@@ -135,11 +141,6 @@ function initRenderingPipeline() {
     qualityChip.textContent = `Quality: ${computeQualityTier()}`;
     clampAllWindows();
   });
-
-  logDiagnostic("log", "rendering pipeline initialized", {
-    quality: computeQualityTier(),
-    reducedMotion,
-  });
 }
 
 function getWindowLayerBounds() {
@@ -213,16 +214,11 @@ function renderWindowBody(appId) {
   const container = document.createElement("div");
   container.className = "app-window-body";
 
-  try {
-    container.innerHTML = `
-      <h2>${appDef.title}</h2>
-      <p>${appDef.subtitle}</p>
-      <p class="hint">Window manager task complete: drag, minimize, maximize, focus, and persist position.</p>
-    `;
-  } catch (error) {
-    container.innerHTML = `<p class="window-error">Window content failed to render safely.</p>`;
-    logDiagnostic("error", "window content render failed", { appId, error: String(error) });
-  }
+  container.innerHTML = `
+    <h2>${appDef.title}</h2>
+    <p>${appDef.subtitle}</p>
+    <p class="hint">Task 4 note: cutscene/login flow is active before desktop mount.</p>
+  `;
 
   return container;
 }
@@ -254,9 +250,7 @@ function clampWindow(win) {
 }
 
 function clampAllWindows() {
-  for (const win of windowState.windows.values()) {
-    clampWindow(win);
-  }
+  for (const win of windowState.windows.values()) clampWindow(win);
   saveWindowLayout();
 }
 
@@ -278,10 +272,8 @@ function toggleMaximize(appId) {
   if (!win.maximized) {
     win.restoreRect = { x: win.x, y: win.y, width: win.width, height: win.height };
     win.maximized = true;
-    win.element.classList.add("window-maximized");
   } else {
     win.maximized = false;
-    win.element.classList.remove("window-maximized");
     if (win.restoreRect) {
       win.x = win.restoreRect.x;
       win.y = win.restoreRect.y;
@@ -296,21 +288,25 @@ function toggleMaximize(appId) {
 }
 
 function attachDragHandlers(win, handle) {
-  let drag = null;
+  let dragState = null;
 
   const onPointerMove = (event) => {
-    if (!drag || win.maximized) return;
-
+    if (!dragState || win.maximized) return;
     const bounds = getWindowLayerBounds();
-    win.x = clamp(event.clientX - bounds.left - drag.offsetX, 0, bounds.width - win.width);
-    win.y = clamp(event.clientY - bounds.top - drag.offsetY, 0, bounds.height - win.height);
+    win.x = clamp(event.clientX - bounds.left - dragState.offsetX, 0, bounds.width - win.width);
+    win.y = clamp(event.clientY - bounds.top - dragState.offsetY, 0, bounds.height - win.height);
     applyWindowRect(win);
   };
 
   const onPointerUp = () => {
-    if (!drag) return;
-    drag = null;
-    handle.classList.remove("dragging");
+    if (!dragState) return;
+    dragState.handle.classList.remove("dragging");
+    try {
+      dragState.handle.releasePointerCapture(dragState.pointerId);
+    } catch (_e) {
+      /* noop */
+    }
+    dragState = null;
     window.removeEventListener("pointermove", onPointerMove);
     window.removeEventListener("pointerup", onPointerUp);
     saveWindowLayout();
@@ -320,13 +316,78 @@ function attachDragHandlers(win, handle) {
     if (event.button !== 0 || win.maximized) return;
     bringToFront(win.appId);
     const rect = win.element.getBoundingClientRect();
-    drag = {
+    dragState = {
+      pointerId: event.pointerId,
       offsetX: event.clientX - rect.left,
       offsetY: event.clientY - rect.top,
+      handle,
     };
     handle.classList.add("dragging");
+    try {
+      handle.setPointerCapture(event.pointerId);
+    } catch (_e) {
+      /* noop */
+    }
     window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp, { once: true });
+    window.addEventListener("pointerup", onPointerUp);
+  });
+}
+
+function attachResizeHandlers(win, element) {
+  const handles = element.querySelectorAll(".resize-handle");
+
+  handles.forEach((handle) => {
+    let resizeState = null;
+
+    const onPointerMove = (event) => {
+      if (!resizeState || win.maximized) return;
+      const bounds = getWindowLayerBounds();
+      const dx = event.clientX - resizeState.startX;
+      const dy = event.clientY - resizeState.startY;
+
+      if (resizeState.dir.includes("e")) {
+        win.width = clamp(resizeState.startWidth + dx, 320, bounds.width - win.x);
+      }
+      if (resizeState.dir.includes("s")) {
+        win.height = clamp(resizeState.startHeight + dy, 220, bounds.height - win.y);
+      }
+
+      applyWindowRect(win);
+    };
+
+    const onPointerUp = () => {
+      if (!resizeState) return;
+      try {
+        resizeState.handle.releasePointerCapture(resizeState.pointerId);
+      } catch (_e) {
+        /* noop */
+      }
+      resizeState = null;
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      saveWindowLayout();
+    };
+
+    handle.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || win.maximized) return;
+      bringToFront(win.appId);
+      resizeState = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        startWidth: win.width,
+        startHeight: win.height,
+        dir: handle.dataset.resize || "se",
+        handle,
+      };
+      try {
+        handle.setPointerCapture(event.pointerId);
+      } catch (_e) {
+        /* noop */
+      }
+      window.addEventListener("pointermove", onPointerMove);
+      window.addEventListener("pointerup", onPointerUp);
+    });
   });
 }
 
@@ -367,7 +428,17 @@ function createWindow(appId, presetRect = null) {
   `;
 
   const body = renderWindowBody(appId);
-  element.append(header, body);
+  const resizeE = document.createElement("div");
+  resizeE.className = "resize-handle resize-handle-e";
+  resizeE.dataset.resize = "e";
+  const resizeS = document.createElement("div");
+  resizeS.className = "resize-handle resize-handle-s";
+  resizeS.dataset.resize = "s";
+  const resizeSE = document.createElement("div");
+  resizeSE.className = "resize-handle resize-handle-se";
+  resizeSE.dataset.resize = "se";
+
+  element.append(header, body, resizeE, resizeS, resizeSE);
   layer.appendChild(element);
 
   const win = {
@@ -390,6 +461,7 @@ function createWindow(appId, presetRect = null) {
 
   element.addEventListener("pointerdown", () => bringToFront(appId));
   attachDragHandlers(win, header);
+  attachResizeHandlers(win, element);
 
   header.querySelector('[data-action="minimize"]').addEventListener("click", () => toggleMinimize(appId));
   header.querySelector('[data-action="maximize"]').addEventListener("click", () => toggleMaximize(appId));
@@ -409,11 +481,8 @@ function initTaskbarAndWindows() {
 
       const existing = windowState.windows.get(appId);
       if (existing) {
-        if (existing.minimized) {
-          toggleMinimize(appId);
-        } else {
-          bringToFront(appId);
-        }
+        if (existing.minimized) toggleMinimize(appId);
+        else bringToFront(appId);
         return;
       }
 
@@ -425,12 +494,8 @@ function initTaskbarAndWindows() {
   stored.forEach((savedWin) => {
     if (!appCatalog[savedWin.appId]) return;
     createWindow(savedWin.appId, savedWin);
-    if (savedWin.maximized) {
-      toggleMaximize(savedWin.appId);
-    }
-    if (savedWin.minimized) {
-      toggleMinimize(savedWin.appId);
-    }
+    if (savedWin.maximized) toggleMaximize(savedWin.appId);
+    if (savedWin.minimized) toggleMinimize(savedWin.appId);
   });
 
   if (windowState.windows.size === 0) {
@@ -439,23 +504,106 @@ function initTaskbarAndWindows() {
   }
 }
 
-function mountDesktopShell() {
-  const root = getEl("root");
-  const bootFallback = getEl("boot-fallback");
+function showDesktopAfterLogin() {
+  const experienceLayer = getEl("experience-layer");
+  const introScreen = getEl("intro-screen");
+  const loginScreen = getEl("login-screen");
+  const desktopShell = getEl("desktop-shell");
   const bootStatus = getEl("boot-status");
 
-  if (!root || !bootFallback || !bootStatus) {
-    failBoot("desktop shell mount failed due to missing DOM refs");
+  if (introScreen) introScreen.hidden = true;
+  if (loginScreen) loginScreen.hidden = true;
+  if (experienceLayer) experienceLayer.hidden = true;
+  if (desktopShell) desktopShell.hidden = false;
+  if (bootStatus) bootStatus.textContent = "ONLINE";
+
+  if (!windowState.desktopInitialized) {
+    windowState.desktopInitialized = true;
+    initTaskbarAndWindows();
+  }
+}
+
+function validateLoginInput(neuralId, decryptKey) {
+  if (!neuralId || neuralId.trim().length < 3) return "Neural_ID must be at least 3 characters.";
+  if (!decryptKey || decryptKey.length < 6) return "Decrypt-Key must be at least 6 characters.";
+  return "";
+}
+
+function initLoginFlow() {
+  const introScreen = getEl("intro-screen");
+  const skipIntro = getEl("skip-intro");
+  const introStream = getEl("intro-stream");
+  const loginScreen = getEl("login-screen");
+  const loginForm = getEl("login-form");
+  const loginError = getEl("login-error");
+  const neuralId = getEl("neural-id");
+  const decryptKey = getEl("decrypt-key");
+
+  if (!introScreen || !skipIntro || !introStream || !loginScreen || !loginForm || !loginError || !neuralId || !decryptKey) {
+    failBoot("intro/login flow failed to initialize due to missing nodes");
+    return;
+  }
+
+  const introLines = [
+    "Handshake established with relay-04…",
+    "Decrypting protocol signatures…",
+    "Hardening session route…",
+    "Neural gate ready.",
+  ];
+
+  let introIndex = 0;
+  const introInterval = window.setInterval(() => {
+    introStream.textContent = introLines[introIndex % introLines.length];
+    introIndex += 1;
+  }, 720);
+
+  const revealLogin = () => {
+    window.clearInterval(introInterval);
+    introScreen.hidden = true;
+    loginScreen.hidden = false;
+    neuralId.focus();
+  };
+
+  const introTimer = window.setTimeout(revealLogin, 3200);
+
+  skipIntro.addEventListener("click", () => {
+    window.clearTimeout(introTimer);
+    revealLogin();
+  });
+
+  loginForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    loginError.textContent = "";
+
+    const neuralValue = neuralId.value;
+    const decryptValue = decryptKey.value;
+    const validation = validateLoginInput(neuralValue, decryptValue);
+    if (validation) {
+      loginError.textContent = validation;
+      return;
+    }
+
+    loginError.textContent = "Authenticating secure session…";
+    window.setTimeout(() => {
+      loginError.textContent = "";
+      showDesktopAfterLogin();
+    }, 550);
+  });
+}
+
+function mountExperienceShell() {
+  const root = getEl("root");
+  const bootFallback = getEl("boot-fallback");
+
+  if (!root || !bootFallback) {
+    failBoot("root shell mount failed due to missing root nodes");
     return;
   }
 
   root.hidden = false;
   bootFallback.classList.remove("boot-fallback--visible");
-  bootStatus.textContent = "ONLINE";
 
-  logDiagnostic("log", "Desktop shell mounted", {
-    viewport: { w: window.innerWidth, h: window.innerHeight },
-  });
+  initLoginFlow();
 }
 
 function installGlobalErrorGuards() {
@@ -482,8 +630,7 @@ function boot() {
   if (!ensureDomContract()) return;
 
   initRenderingPipeline();
-  mountDesktopShell();
-  initTaskbarAndWindows();
+  mountExperienceShell();
 }
 
 boot();
