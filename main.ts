@@ -24,6 +24,9 @@ const WINDOW_STORE_KEY = "rootaccess.windows.v1";
 const MARKET_CACHE_KEY = "rootaccess.blockchain.v1";
 
 const diagnostics = [];
+const appRuntimeState = {
+  startupWindowOpen: true,
+};
 const windowState = {
   windows: new Map(),
   zCounter: 10,
@@ -1406,11 +1409,21 @@ function initAuthBridge() {
         bootStatus.textContent = status === 'online' ? 'AUTH ONLINE' : status === 'offline' ? 'AUTH OFFLINE' : 'AUTH LOADING';
       }
     },
-  }).then((bridge) => {
-    authBridge = bridge;
-    logDiagnostic('log', 'firebase auth bridge initialized', { mode: bridge.mode });
-    applyRoleAccessToUi();
-  });
+  })
+    .then((bridge) => {
+      authBridge = bridge;
+      logDiagnostic('log', 'firebase auth bridge initialized', { mode: bridge.mode });
+      applyRoleAccessToUi();
+    })
+    .catch((error) => {
+      logDiagnostic('warn', 'firebase auth bridge promise rejected unexpectedly', { error: String(error) });
+      authBridge = {
+        mode: 'offline',
+        authenticate: async () => ({ ok: false, message: 'Authentication temporarily unavailable.' }),
+        register: async () => ({ ok: false, message: 'Signup temporarily unavailable.' }),
+      };
+      if (bootStatus && !windowState.desktopInitialized) bootStatus.textContent = 'AUTH OFFLINE';
+    });
 }
 
 function showDesktopAfterLogin() {
@@ -1503,52 +1516,57 @@ function initLoginFlow() {
     event.preventDefault();
     loginError.textContent = "";
 
-    const neuralValue = neuralId.value;
-    const decryptValue = decryptKey.value;
-    const validation = validateLoginInput(neuralValue, decryptValue);
-    if (validation) {
-      loginError.textContent = validation;
-      return;
+    try {
+      const neuralValue = neuralId.value;
+      const decryptValue = decryptKey.value;
+      const validation = validateLoginInput(neuralValue, decryptValue);
+      if (validation) {
+        loginError.textContent = validation;
+        return;
+      }
+
+      loginError.textContent = "Authenticating secure session…";
+
+      const bridge = authBridge;
+      if (!bridge || typeof bridge.authenticate !== 'function') {
+        loginError.textContent = 'Authentication service not ready yet. Please retry in a second.';
+        return;
+      }
+
+      const action = authMode === "signup" ? bridge.register : bridge.authenticate;
+      if (typeof action !== "function") {
+        loginError.textContent = "Authentication mode unavailable right now. Please retry.";
+        return;
+      }
+
+      const result = await action(neuralValue, decryptValue);
+      if (!result.ok) {
+        loginError.textContent = result.message;
+        return;
+      }
+
+      logDiagnostic('log', 'user authenticated', { uid: result.user?.uid, email: result.user?.email });
+      currentUser = result.user || null;
+
+      dataBridge = await initFirebaseDataBridge({
+        uid: currentUser?.uid,
+        onStatus(status) {
+          logDiagnostic('log', 'firebase data bridge status', { status });
+        },
+      });
+
+      await hydratePlayerStateFromCloud();
+      if (typeof dataBridge.ensureRolesDoc === "function") {
+        await dataBridge.ensureRolesDoc();
+      }
+      await loadRoleStateFromCloud();
+
+      loginError.textContent = "";
+      showDesktopAfterLogin();
+    } catch (error) {
+      logDiagnostic('warn', 'login flow failed unexpectedly', { error: String(error) });
+      loginError.textContent = 'Login flow hit an unexpected error. Please retry.';
     }
-
-    loginError.textContent = "Authenticating secure session…";
-
-    const bridge = authBridge;
-    if (!bridge || typeof bridge.authenticate !== 'function') {
-      loginError.textContent = 'Authentication service not ready yet. Please retry in a second.';
-      return;
-    }
-
-    const action = authMode === "signup" ? bridge.register : bridge.authenticate;
-    if (typeof action !== "function") {
-      loginError.textContent = "Authentication mode unavailable right now. Please retry.";
-      return;
-    }
-
-    const result = await action(neuralValue, decryptValue);
-    if (!result.ok) {
-      loginError.textContent = result.message;
-      return;
-    }
-
-    logDiagnostic('log', 'user authenticated', { uid: result.user?.uid, email: result.user?.email });
-    currentUser = result.user || null;
-
-    dataBridge = await initFirebaseDataBridge({
-      uid: currentUser?.uid,
-      onStatus(status) {
-        logDiagnostic('log', 'firebase data bridge status', { status });
-      },
-    });
-
-    await hydratePlayerStateFromCloud();
-    if (typeof dataBridge.ensureRolesDoc === "function") {
-      await dataBridge.ensureRolesDoc();
-    }
-    await loadRoleStateFromCloud();
-
-    loginError.textContent = "";
-    showDesktopAfterLogin();
   });
 }
 
@@ -1569,18 +1587,30 @@ function mountExperienceShell() {
 
 function installGlobalErrorGuards() {
   window.addEventListener("error", (event) => {
-    failBoot("runtime error during startup", {
+    const context = {
       message: event.message,
       source: event.filename,
       line: event.lineno,
       col: event.colno,
-    });
+    };
+
+    if (appRuntimeState.startupWindowOpen) {
+      failBoot("runtime error during startup", context);
+      return;
+    }
+
+    logDiagnostic('warn', 'runtime error after startup window', context);
   });
 
   window.addEventListener("unhandledrejection", (event) => {
-    failBoot("unhandled async rejection during startup", {
-      reason: String(event.reason),
-    });
+    const context = { reason: String(event.reason) };
+
+    if (appRuntimeState.startupWindowOpen) {
+      failBoot("unhandled async rejection during startup", context);
+      return;
+    }
+
+    logDiagnostic('warn', 'unhandled async rejection after startup window', context);
   });
 }
 
@@ -1593,6 +1623,7 @@ function boot() {
   initRenderingPipeline();
   initAuthBridge();
   mountExperienceShell();
+  appRuntimeState.startupWindowOpen = false;
 }
 
 boot();
