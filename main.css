@@ -847,3 +847,35 @@ body {
   max-height: 120px;
   overflow: auto;
 }
+
+
+.social-app,
+.pvp-app,
+.events-app {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.social-card {
+  border: 1px solid rgba(16, 234, 176, 0.2);
+  border-radius: 8px;
+  background: rgba(5, 18, 22, 0.88);
+  padding: 0.5rem;
+}
+
+.social-card h3 {
+  margin: 0 0 0.25rem;
+}
+
+.social-card p {
+  margin: 0.2rem 0;
+  color: var(--text-secondary);
+}
+
+.social-list {
+  margin: 0;
+  padding-left: 1rem;
+  display: grid;
+  gap: 0.2rem;
+  color: var(--text-secondary);
+}

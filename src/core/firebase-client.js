@@ -250,6 +250,7 @@ function mapFirebaseAuthError(error) {
     'auth/invalid-email': 'Neural_ID must be a valid email format for this phase.',
     'auth/email-already-in-use': 'An account already exists for that Neural_ID. Try Sign in.',
     'auth/weak-password': 'Decrypt-Key is too weak. Use at least 6 characters.',
+    'auth/configuration-not-found': 'Firebase Auth is not fully configured. Enable Email/Password sign-in in Firebase Console > Authentication > Sign-in method, and verify the project matches this app config.',
   };
 
   return mapping[code] || `Authentication failed (${code}).`;

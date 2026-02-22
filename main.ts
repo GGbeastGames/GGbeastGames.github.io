@@ -54,6 +54,9 @@ const appCatalog = {
   market: { title: "Black Market", subtitle: "Acquire command lessons and software" },
   index: { title: "Index", subtitle: "Owned + locked command catalogue" },
   blockchain: { title: "Blockchain Exchange", subtitle: "Trade corp shares with safety controls" },
+  social: { title: "Social Hub", subtitle: "Crews, factions, and cooperative progression" },
+  pvp: { title: "PvP Hub", subtitle: "Ranked, raid, and practice combat modes" },
+  events: { title: "Events Feed", subtitle: "Flash, weekly, and seasonal operations" },
   settings: { title: "Settings", subtitle: "Client quality and gameplay preferences" },
   admin: { title: "Admin", subtitle: "Role-restricted live-ops console (placeholder)" },
 };
@@ -95,6 +98,49 @@ const adminState = {
   ],
   auditLogs: [],
 };
+
+
+const socialState = {
+  crews: [
+    { id: 'crew_nova', name: 'Nova Reapers', members: 4, vaultTier: 2, operationReady: true },
+    { id: 'crew_umbra', name: 'Umbra Node', members: 3, vaultTier: 1, operationReady: false },
+  ],
+  factions: [
+    { id: 'VALK', bonus: '+5% terminal payout', reputation: 12 },
+    { id: 'GLYPH', bonus: '-8% market fees', reputation: 8 },
+    { id: 'ZERO', bonus: '+intel reveal chance', reputation: 4 },
+    { id: 'PULSE', bonus: '+defense integrity', reputation: 6 },
+    { id: 'TITAN', bonus: '+raid extraction speed', reputation: 3 },
+  ],
+};
+
+const pvpState = {
+  beginnerShield: true,
+  dailyLossCap: 120,
+  dailyLossUsed: 0,
+  repeatTargetCooldownSec: 180,
+  modes: [
+    { id: 'ranked-duel', name: 'Ranked Duel', status: 'searching disabled (scaffold)' },
+    { id: 'async-raid', name: 'Asynchronous Raid', status: 'beta queue placeholder' },
+    { id: 'team-op', name: 'Team Operation 2v2', status: 'party integration pending' },
+    { id: 'sandbox', name: 'Practice Sandbox', status: 'available' },
+  ],
+};
+
+const eventsState = {
+  flash: [
+    { id: 'flash_terminal_boost', title: 'Terminal Surge', etaSec: 900, reward: '2x phish payout window' },
+  ],
+  weekly: [
+    { id: 'weekly_faction_push', title: 'Faction Push: GLYPH', progress: 42, target: 100 },
+  ],
+  seasonal: {
+    chapter: 'Season 01: Ghost Relay',
+    daysRemaining: 23,
+    antiFomo: 'Power rewards rotate into permanent unlock paths next season.',
+  },
+};
+
 
 
 function logDiagnostic(level, message, context = {}) {
@@ -916,6 +962,126 @@ function createBlockchainWindowView() {
   return wrapper;
 }
 
+function createSocialHubWindowView() {
+  const wrapper = document.createElement('section');
+  wrapper.className = 'app-window-body social-app';
+
+  const title = document.createElement('h2');
+  title.textContent = 'Social Hub';
+
+  const crews = document.createElement('section');
+  crews.className = 'social-card';
+  crews.innerHTML = '<h3>Crews</h3>';
+  const crewList = document.createElement('ul');
+  crewList.className = 'social-list';
+
+  const factions = document.createElement('section');
+  factions.className = 'social-card';
+  factions.innerHTML = '<h3>Factions</h3>';
+  const factionList = document.createElement('ul');
+  factionList.className = 'social-list';
+
+  const render = () => {
+    crewList.innerHTML = '';
+    socialState.crews.forEach((crew) => {
+      const li = document.createElement('li');
+      li.textContent = `${crew.name} · members ${crew.members} · vault T${crew.vaultTier} · op ${crew.operationReady ? 'ready' : 'pending'}`;
+      crewList.appendChild(li);
+    });
+
+    factionList.innerHTML = '';
+    socialState.factions.forEach((faction) => {
+      const li = document.createElement('li');
+      li.textContent = `${faction.id} · rep ${faction.reputation} · bonus ${faction.bonus}`;
+      factionList.appendChild(li);
+    });
+  };
+
+  render();
+  wrapper.append(title, crews, crewList, factions, factionList);
+  return wrapper;
+}
+
+function createPvpHubWindowView() {
+  const wrapper = document.createElement('section');
+  wrapper.className = 'app-window-body pvp-app';
+
+  const title = document.createElement('h2');
+  title.textContent = 'PvP Hub';
+
+  const guardrails = document.createElement('section');
+  guardrails.className = 'social-card';
+  guardrails.innerHTML = `
+    <h3>Fair-Play Guardrails</h3>
+    <p>Beginner Shield: ${pvpState.beginnerShield}</p>
+    <p>Daily Loss Cap: ${pvpState.dailyLossUsed}/${pvpState.dailyLossCap} Ø</p>
+    <p>Repeat Target Cooldown: ${pvpState.repeatTargetCooldownSec}s</p>
+  `;
+
+  const modeTitle = document.createElement('h3');
+  modeTitle.textContent = 'Modes';
+  const modeList = document.createElement('ul');
+  modeList.className = 'social-list';
+  pvpState.modes.forEach((mode) => {
+    const li = document.createElement('li');
+    li.textContent = `${mode.name} · ${mode.status}`;
+    modeList.appendChild(li);
+  });
+
+  wrapper.append(title, guardrails, modeTitle, modeList);
+  return wrapper;
+}
+
+function createEventsWindowView() {
+  const wrapper = document.createElement('section');
+  wrapper.className = 'app-window-body events-app';
+
+  const title = document.createElement('h2');
+  title.textContent = 'Events Feed';
+
+  const flash = document.createElement('section');
+  flash.className = 'social-card';
+  flash.innerHTML = '<h3>Flash Events</h3>';
+  const flashList = document.createElement('ul');
+  flashList.className = 'social-list';
+
+  const weekly = document.createElement('section');
+  weekly.className = 'social-card';
+  weekly.innerHTML = '<h3>Weekly Operations</h3>';
+  const weeklyList = document.createElement('ul');
+  weeklyList.className = 'social-list';
+
+  const seasonal = document.createElement('section');
+  seasonal.className = 'social-card';
+
+  const render = () => {
+    flashList.innerHTML = '';
+    eventsState.flash.forEach((item) => {
+      const li = document.createElement('li');
+      li.textContent = `${item.title} · starts in ${item.etaSec}s · reward: ${item.reward}`;
+      flashList.appendChild(li);
+    });
+
+    weeklyList.innerHTML = '';
+    eventsState.weekly.forEach((item) => {
+      const li = document.createElement('li');
+      li.textContent = `${item.title} · ${item.progress}/${item.target}% community progress`;
+      weeklyList.appendChild(li);
+    });
+
+    seasonal.innerHTML = `
+      <h3>Seasonal Arc</h3>
+      <p>${eventsState.seasonal.chapter}</p>
+      <p>Days remaining: ${eventsState.seasonal.daysRemaining}</p>
+      <p>${eventsState.seasonal.antiFomo}</p>
+    `;
+  };
+
+  render();
+  wrapper.append(title, flash, flashList, weekly, weeklyList, seasonal);
+  return wrapper;
+}
+
 function renderWindowBody(appId) {
   const appDef = appCatalog[appId] || { title: "Unknown App", subtitle: "No app metadata found." };
 
@@ -923,6 +1089,9 @@ function renderWindowBody(appId) {
   if (appId === "market") return createBlackMarketWindowView();
   if (appId === "index") return createIndexWindowView();
   if (appId === "blockchain") return createBlockchainWindowView();
+  if (appId === "social") return createSocialHubWindowView();
+  if (appId === "pvp") return createPvpHubWindowView();
+  if (appId === "events") return createEventsWindowView();
   if (appId === "admin") return createAdminWindowView();
 
   const container = document.createElement("div");
@@ -930,7 +1099,7 @@ function renderWindowBody(appId) {
   container.innerHTML = `
     <h2>${appDef.title}</h2>
     <p>${appDef.subtitle}</p>
-    <p class="hint">Phase 8 running: market/index + blockchain exchange systems active.</p>
+    <p class="hint">Phase 10 running: social, PvP, and event scaffolding active.</p>
   `;
   return container;
 }
