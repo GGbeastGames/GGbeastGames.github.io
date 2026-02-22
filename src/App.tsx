@@ -8,7 +8,7 @@ import {
 } from 'firebase/auth';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { doc, onSnapshot, serverTimestamp, setDoc, collection, query, orderBy, deleteDoc } from 'firebase/firestore';
-import { auth, db, storage } from './config/firebase';
+import { auth, authPersistenceReady, db, storage } from './config/firebase';
 import { BlackMarketApp } from './components/apps/BlackMarketApp';
 import { BlockchainApp } from './components/apps/BlockchainApp';
 import { CasinoApp } from './components/apps/CasinoApp';
@@ -236,7 +236,7 @@ function readPersisted(storageKey: string): PersistedDesktop {
 
 export function App() {
   const [phase, setPhase] = useState<AppPhase>('boot');
-  const initial = useMemo(() => readPersisted(`${STORAGE_KEY}.guest`), []);
+  const initial = useMemo(() => readPersisted(`${STORAGE_KEY}.signed-default`), []);
   const [windows, setWindows] = useState<WindowState[]>(initial.windows);
   const [player, setPlayer] = useState<PlayerState>(initial.player);
   const [cooldowns, setCooldowns] = useState<Cooldowns>(initial.cooldowns);
@@ -261,7 +261,6 @@ export function App() {
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
   const [user, setUser] = useState<User | null>(null);
-  const [guestMode, setGuestMode] = useState(false);
   const [cloudAdmin, setCloudAdmin] = useState(false);
   const [cloudHydrated, setCloudHydrated] = useState(false);
 
@@ -293,24 +292,27 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (nextUser) => {
-      const nextUid = nextUser?.uid ?? null;
-      const prevUid = prevAuthUidRef.current;
-      if (nextUid !== prevUid) {
-        const storageKey = nextUid ? `${STORAGE_KEY}.signed-default` : `${STORAGE_KEY}.guest`;
-        loadStateFromCache(storageKey);
-        setInPvpQueue(false);
-        setActiveMatch(null);
-      }
-      prevAuthUidRef.current = nextUid;
-      setUser(nextUser);
-      if (nextUser) setPhase('desktop');
+    let unsub: () => void = () => {};
+    void authPersistenceReady.then(() => {
+      unsub = onAuthStateChanged(auth, (nextUser) => {
+        const nextUid = nextUser?.uid ?? null;
+        const prevUid = prevAuthUidRef.current;
+        if (nextUid !== prevUid) {
+          const storageKey = `${STORAGE_KEY}.signed-default`;
+          loadStateFromCache(storageKey);
+          setInPvpQueue(false);
+          setActiveMatch(null);
+        }
+        prevAuthUidRef.current = nextUid;
+        setUser(nextUser);
+        if (nextUser) setPhase('desktop');
+      });
     });
     return () => unsub();
   }, []);
 
   useEffect(() => {
-    if (!user || guestMode) {
+    if (!user) {
       setCloudHydrated(false);
       setCloudAdmin(false);
       return;
@@ -400,10 +402,10 @@ export function App() {
     });
 
     return () => unsub();
-  }, [user, guestMode]);
+  }, [user]);
 
   useEffect(() => {
-    if (!user || guestMode || !cloudHydrated || cloudApplyRef.current) return;
+    if (!user || !cloudHydrated || cloudApplyRef.current) return;
 
     const timer = window.setTimeout(() => {
       const playerRef = doc(db, 'players', user.uid);
@@ -463,7 +465,6 @@ export function App() {
     return () => window.clearTimeout(timer);
   }, [
     user,
-    guestMode,
     cloudHydrated,
     cloudAdmin,
     windows,
@@ -483,8 +484,7 @@ export function App() {
   ]);
 
   useEffect(() => {
-    if (user?.uid && !guestMode) return;
-    const storageKey = `${STORAGE_KEY}.guest`;
+    const storageKey = `${STORAGE_KEY}.signed-default`;
     localStorage.setItem(
       storageKey,
       JSON.stringify({
@@ -504,14 +504,11 @@ export function App() {
         logs: logs.slice(-MAX_LOGS)
       } satisfies PersistedDesktop)
     );
-  }, [user, guestMode, windows, player, cooldowns, progression, shopInventory, retention, casino, ranked, blockchain, growth, season, admin, displaySettings, logs]);
-
+  }, [windows, player, cooldowns, progression, shopInventory, retention, casino, ranked, blockchain, growth, season, admin, displaySettings, logs]);
 
   useEffect(() => {
-    const legacy = localStorage.getItem('aionous.desktop.v4');
-    if (legacy) {
-      localStorage.removeItem('aionous.desktop.v4');
-    }
+    localStorage.removeItem('aionous.desktop.v4');
+    localStorage.removeItem('aionous.desktop.v5.guest');
   }, []);
 
   useEffect(() => {
@@ -580,7 +577,7 @@ export function App() {
     };
   }, []);
 
-  const desktopIdentity = useMemo(() => (guestMode ? 'Guest Operator' : user?.email ?? 'Anonymous'), [guestMode, user]);
+  const desktopIdentity = useMemo(() => user?.email ?? 'Anonymous', [user]);
   const isAdmin = useMemo(() => {
     const adminEmails = String(import.meta.env.VITE_ADMIN_EMAILS ?? '');
     const allow = adminEmails
@@ -932,9 +929,7 @@ export function App() {
     }
 
     if (!user) {
-      const localUrl = URL.createObjectURL(file);
-      setRetention((prev) => ({ ...prev, profilePhotoUrl: localUrl, profilePhotoPath: null }));
-      appendLogs([makeLog('Guest mode: profile image set locally (not uploaded).', 'warn')]);
+      appendLogs([makeLog('Profile upload requires a signed-in account.', 'warn')]);
       return;
     }
 
@@ -1006,7 +1001,6 @@ export function App() {
       await deleteDoc(doc(db, 'pvpQueue', user.uid));
     }
     await signOut(auth);
-    setGuestMode(false);
     setPhase('login');
   }
 
@@ -1030,7 +1024,7 @@ export function App() {
         <section className="login-card phase4">
           <p className="kicker">ACCESS TERMINAL</p>
           <h1>Neural Link Login</h1>
-          <p className="muted">Authenticate with Firebase or enter Guest mode for local-only prototype sessions.</p>
+          <p className="muted">Authenticate with Firebase to access your account-specific cloud progression.</p>
 
           <form onSubmit={onSubmitAuth} className="auth-form">
             <label>
@@ -1062,15 +1056,6 @@ export function App() {
           <div className="login-actions">
             <button type="button" onClick={() => setAuthMode((prev) => (prev === 'signin' ? 'signup' : 'signin'))}>
               Switch to {authMode === 'signin' ? 'Create Account' : 'Sign In'}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setGuestMode(true);
-                setPhase('desktop');
-              }}
-            >
-              Enter as Guest
             </button>
           </div>
 

@@ -30,4 +30,4 @@ VITE_FIREBASE_MEASUREMENT_ID=
 ```
 
 ## Security rules
-- Firestore / RTDB / Storage rule templates are in `config/FIREBASE_RULES.md`.
+- Firestore / Storage rule templates are in `config/FIREBASE_RULES.md`.

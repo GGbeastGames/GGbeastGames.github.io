@@ -4,7 +4,7 @@ Cyberpunk desktop hacking game built phase-by-phase on a $0 stack.
 
 ## Stack
 - Vite + React + TypeScript
-- Firebase (Auth, Firestore, Realtime DB, Storage)
+- Firebase (Auth, Firestore, Storage)
 - GitHub Pages deployment
 
 ## Local development
@@ -61,6 +61,7 @@ Build also creates `dist/404.html` + `dist/.nojekyll` for GitHub Pages SPA fallb
 - `docs/phases/PHASE_11_SEASONS_COSMETICS_MENTOR.md`
 - `docs/phases/PHASE_12_ADMIN_LIVEOPS.md`
 - `docs/phases/PHASE_13_STABILITY_GUI_ENHANCEMENTS.md`
+- `docs/phases/PHASE_4_AUTH_SESSION_FIRESTORE_HARDENING.md`
 - `docs/phases/PHASE_2_FIRESTORE_AUTH_AND_IDENTITY.md`
 - `config/FIREBASE_RULES.md`
 - `config/FIREBASE_SETUP.md`
@@ -83,8 +84,12 @@ If GitHub Pages is serving repository source instead of `dist/`, `index.html` no
 
 
 ## Phase 1 data sync (Firestore player card)
-Signed-in users now bootstrap and sync a `players/{uid}` document (profile, roles, economy, stats, progression, and desktop state). Guest mode remains local-only.
+Signed-in users now bootstrap and sync a `players/{uid}` document (profile, roles, economy, stats, progression, and desktop state).
 
 
 ## Phase 2 account isolation + Firestore queue
 Cache now isolates by user ID (`aionous.desktop.v5.<uid>`) and PvP queue uses Firestore (`pvpQueue`) so signed-in data stays account-scoped.
+
+
+## Phase 4 auth/session hardening
+Guest mode removed, login persistence switched to browser-session only, and runtime storage path now uses Firestore-focused flows for signed users.

@@ -54,37 +54,6 @@ service cloud.firestore {
 }
 ```
 
-## Realtime Database Rules (`Realtime Database > Rules`)
-> Realtime DB rules below are legacy/optional; matchmaking now uses Firestore `pvpQueue` by default.
-```json
-{
-  "rules": {
-    ".read": false,
-    ".write": false,
-    "pvp": {
-      "queue": {
-        ".read": "auth != null",
-        "$entry": {
-          ".write": "auth != null && newData.child('uid').val() === auth.uid",
-          "uid": { ".validate": "newData.val() === auth.uid" },
-          "alias": { ".validate": "newData.isString() && newData.val().length <= 32" },
-          "rankedPoints": { ".validate": "newData.isNumber()" },
-          "queuedAt": { ".validate": "newData.isNumber()" }
-        }
-      }
-    },
-    "chat": {
-      ".read": "auth != null && root.child('admin/featureToggles/chatOpen').val() === true",
-      ".write": "auth != null && root.child('admin/featureToggles/chatOpen').val() === true"
-    },
-    "admin": {
-      ".read": "auth != null && auth.token.admin === true",
-      ".write": "auth != null && auth.token.admin === true"
-    }
-  }
-}
-```
-
 ## Storage Rules (`Storage > Rules`)
 ```txt
 rules_version = '2';
