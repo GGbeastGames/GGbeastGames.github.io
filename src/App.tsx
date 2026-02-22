@@ -627,8 +627,7 @@ export function App() {
       .map((item: string) => item.trim().toLowerCase())
       .filter(Boolean);
     const email = user?.email?.toLowerCase() ?? '';
-    const override = localStorage.getItem('aionous.admin') === 'true';
-    return cloudAdmin || override || (!!email && allow.includes(email));
+    return cloudAdmin || (!!email && allow.includes(email));
   }, [user, cloudAdmin]);
   const topZ = useMemo(() => Math.max(...windows.map((windowItem) => windowItem.z), 0), [windows]);
   const successRate = useMemo(() => Math.round(getSuccessRate(player) * 100), [player]);
@@ -903,11 +902,13 @@ export function App() {
   }
 
   function onAdminSetBanner(text: string) {
+    if (!isAdmin) return;
     setAdmin((prev) => appendAudit({ ...prev, globalBanner: text }, desktopIdentity, 'set_banner', text || '<clear>'));
     appendLogs([makeLog(`Admin banner ${text ? 'updated' : 'cleared'}.`, 'success')]);
   }
 
   function onAdminToggleFeature(key: 'chatOpen' | 'pollsEnabled') {
+    if (!isAdmin) return;
     setAdmin((prev) => {
       const next = {
         ...prev,
@@ -918,6 +919,7 @@ export function App() {
   }
 
   function onAdminGrantCommand(command: BaseCommandId, withTrait: boolean) {
+    if (!isAdmin) return;
     const trait = withTrait ? 'spring' : null;
     const commandKey = grantCommandWithTrait(command, trait);
     setProgression((prev) => ({
@@ -938,6 +940,7 @@ export function App() {
   }
 
   function onAdminAddShopItem(command: BaseCommandId, limited: boolean) {
+    if (!isAdmin) return;
     const item = createShopItemTemplate(command, Math.floor(Math.random() * 9) + 1, limited);
     setShopInventory((prev) => [item, ...prev]);
     setAdmin((prev) => appendAudit(prev, desktopIdentity, 'shop_item_create', item.id));
@@ -945,10 +948,12 @@ export function App() {
   }
 
   function onAdminFlagPlayer(alias: string, note: string) {
+    if (!isAdmin) return;
     setAdmin((prev) => appendAudit(upsertPlayerFlag(prev, alias, { flagged: true, note }), desktopIdentity, 'flag_player', alias));
   }
 
   function onAdminTempBan(alias: string, hours: number) {
+    if (!isAdmin) return;
     setAdmin((prev) =>
       appendAudit(
         upsertPlayerFlag(prev, alias, { tempBanUntil: Date.now() + hours * 3600_000, flagged: true }),
@@ -960,6 +965,7 @@ export function App() {
   }
 
   function onAdminPermBan(alias: string) {
+    if (!isAdmin) return;
     setAdmin((prev) => appendAudit(upsertPlayerFlag(prev, alias, { permBanned: true, flagged: true }), desktopIdentity, 'perm_ban', alias));
   }
 
