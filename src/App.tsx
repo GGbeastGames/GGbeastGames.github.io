@@ -284,6 +284,10 @@ export function App() {
         const nextUid = nextUser?.uid ?? null;
         const prevUid = prevAuthUidRef.current;
 
+        if (prevUid && prevUid !== nextUid) {
+          void deleteDoc(doc(db, 'pvpQueue', prevUid));
+        }
+
         if (nextUid !== prevUid) {
           setHydratedUid(null);
           setInPvpQueue(false);
@@ -561,6 +565,7 @@ export function App() {
   useEffect(() => {
     if (!user) {
       setPvpQueue([]);
+      setInPvpQueue(false);
       return;
     }
 
@@ -578,9 +583,11 @@ export function App() {
           };
         });
         setPvpQueue(rows);
+        setInPvpQueue(rows.some((entry) => entry.id === user.uid));
       },
       () => {
         setPvpQueue([]);
+        setInPvpQueue(false);
       }
     );
 
@@ -1019,7 +1026,7 @@ export function App() {
   }
 
   async function handleSignOut() {
-    if (user?.uid && inPvpQueue) {
+    if (user?.uid) {
       await deleteDoc(doc(db, 'pvpQueue', user.uid));
     }
     await signOut(auth);
