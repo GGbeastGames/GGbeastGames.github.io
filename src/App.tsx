@@ -163,6 +163,28 @@ function createDefaultDesktopState(): PersistedDesktop {
   };
 }
 
+function isPersistedDesktop(value: unknown): value is PersistedDesktop {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<PersistedDesktop>;
+
+  return Boolean(
+    Array.isArray(candidate.windows) &&
+      candidate.player &&
+      candidate.cooldowns &&
+      Array.isArray(candidate.logs) &&
+      candidate.progression &&
+      Array.isArray(candidate.shopInventory) &&
+      candidate.retention &&
+      candidate.casino &&
+      candidate.ranked &&
+      candidate.blockchain &&
+      candidate.growth &&
+      candidate.season &&
+      candidate.admin &&
+      candidate.displaySettings
+  );
+}
+
 const appTemplates: Record<AppId, Omit<WindowState, 'isOpen' | 'isMinimized' | 'isMaximized' | 'z'>> = {
   terminal: { id: 'terminal', title: 'Terminal', x: 50, y: 90, width: 700, height: 460 },
   market: { id: 'market', title: 'Black Market', x: 190, y: 120, width: 500, height: 340 },
@@ -268,6 +290,23 @@ export function App() {
     setLogs(defaults.logs);
   }
 
+  function applyDesktopState(next: PersistedDesktop) {
+    setWindows(Array.isArray(next.windows) ? next.windows : seedWindows());
+    setPlayer((prev) => ({ ...prev, ...next.player }));
+    setCooldowns((prev) => ({ ...prev, ...next.cooldowns }));
+    setProgression((prev) => ({ ...prev, ...next.progression }));
+    setShopInventory(Array.isArray(next.shopInventory) ? next.shopInventory : defaultShopInventory);
+    setRetention((prev) => ({ ...prev, ...next.retention }));
+    setCasino((prev) => ({ ...prev, ...next.casino }));
+    setRanked((prev) => ({ ...prev, ...next.ranked }));
+    setBlockchain((prev) => ({ ...prev, ...next.blockchain }));
+    setGrowth((prev) => ({ ...prev, ...next.growth }));
+    setSeason((prev) => ({ ...prev, ...next.season }));
+    setAdmin((prev) => ({ ...prev, ...next.admin }));
+    setDisplaySettings((prev) => ({ ...prev, ...next.displaySettings }));
+    setLogs(Array.isArray(next.logs) ? next.logs.slice(-MAX_LOGS) : []);
+  }
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       if (phase === 'boot' && authReady && !user) {
@@ -310,9 +349,32 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!authReady || !user || !cloudHydrated || hydratedUid !== user.uid) return;
+    if (!authReady || !user || hydratedUid !== user.uid) return;
     setPhase('desktop');
-  }, [authReady, user, cloudHydrated, hydratedUid]);
+  }, [authReady, user, hydratedUid]);
+
+  useEffect(() => {
+    if (!authReady || !user || hydratedUid === user.uid || cloudHydrated) return;
+
+    const storageKey = getStorageKey(user.uid);
+    const fallback = createDefaultDesktopState();
+
+    let nextState = fallback;
+    const raw = localStorage.getItem(storageKey);
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (isPersistedDesktop(parsed)) {
+          nextState = parsed;
+        }
+      } catch {
+        nextState = fallback;
+      }
+    }
+
+    applyDesktopState(nextState);
+    setHydratedUid(user.uid);
+  }, [authReady, user, hydratedUid, cloudHydrated]);
 
   useEffect(() => {
     if (!user) {
@@ -374,22 +436,10 @@ export function App() {
 
           setCloudAdmin(Boolean(data.roles?.admin));
 
+          // Cloud snapshot has precedence and will overwrite any local hydration once available.
           const remote = data.desktopState ?? createDefaultDesktopState();
           cloudApplyRef.current = true;
-          setWindows(Array.isArray(remote.windows) ? remote.windows : seedWindows());
-          if (remote.player) setPlayer((prev) => ({ ...prev, ...remote.player }));
-          if (remote.cooldowns) setCooldowns((prev) => ({ ...prev, ...remote.cooldowns }));
-          if (remote.progression) setProgression((prev) => ({ ...prev, ...remote.progression }));
-          if (Array.isArray(remote.shopInventory)) setShopInventory(remote.shopInventory);
-          if (remote.retention) setRetention((prev) => ({ ...prev, ...remote.retention }));
-          if (remote.casino) setCasino((prev) => ({ ...prev, ...remote.casino }));
-          if (remote.ranked) setRanked((prev) => ({ ...prev, ...remote.ranked }));
-          if (remote.blockchain) setBlockchain((prev) => ({ ...prev, ...remote.blockchain }));
-          if (remote.growth) setGrowth((prev) => ({ ...prev, ...remote.growth }));
-          if (remote.season) setSeason((prev) => ({ ...prev, ...remote.season }));
-          if (remote.admin) setAdmin((prev) => ({ ...prev, ...remote.admin }));
-          if (remote.displaySettings) setDisplaySettings((prev) => ({ ...prev, ...remote.displaySettings }));
-          if (Array.isArray(remote.logs)) setLogs(remote.logs.slice(-MAX_LOGS));
+          applyDesktopState(remote);
           window.setTimeout(() => {
             cloudApplyRef.current = false;
           }, 0);
