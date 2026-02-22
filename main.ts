@@ -26,6 +26,8 @@ const MARKET_CACHE_KEY = "rootaccess.blockchain.v1";
 const diagnostics = [];
 const appRuntimeState = {
   startupWindowOpen: true,
+  safeBootMode: false,
+  lastWarning: "",
 };
 const windowState = {
   windows: new Map(),
@@ -177,6 +179,17 @@ function failBoot(message, context = {}) {
   });
   const root = getEl("root");
   if (root) root.hidden = true;
+}
+
+function warnBoot(message, context = {}) {
+  appRuntimeState.safeBootMode = true;
+  appRuntimeState.lastWarning = message;
+  logDiagnostic("warn", message, context);
+
+  const root = getEl("root");
+  if (root) root.hidden = false;
+
+  setBootMessage(`RootAccess warning: ${message}. Continuing in safe mode.`, { isError: false });
 }
 
 function guardAgainstWrongEntryPath() {
@@ -1585,6 +1598,32 @@ function mountExperienceShell() {
   initLoginFlow();
 }
 
+function runPhase12HealthChecks() {
+  const checks = [
+    { name: 'entry-route-guard', ok: typeof guardAgainstWrongEntryPath === 'function' },
+    { name: 'dom-contract-guard', ok: typeof ensureDomContract === 'function' },
+    { name: 'auth-bridge-init', ok: typeof initAuthBridge === 'function' },
+    { name: 'login-flow-init', ok: typeof initLoginFlow === 'function' },
+    { name: 'window-manager', ok: typeof createWindow === 'function' && typeof initTaskbarAndWindows === 'function' },
+    { name: 'terminal-engine', ok: typeof terminalEngine?.execute === 'function' },
+    { name: 'market-system', ok: typeof createBlockchainWindowView === 'function' },
+    { name: 'admin-gating', ok: typeof canAccessAdminPanel === 'function' },
+    { name: 'social-pvp-events', ok: typeof createSocialHubWindowView === 'function' && typeof createPvpHubWindowView === 'function' && typeof createEventsWindowView === 'function' },
+  ];
+
+  const failed = checks.filter((item) => !item.ok);
+  if (failed.length) {
+    warnBoot('Phase 12 health checks found missing modules', { failed: failed.map((x) => x.name) });
+  } else {
+    logDiagnostic('log', 'phase 12 health checks passed', { checks: checks.length });
+  }
+
+  window.__ROOTACCESS_DIAGNOSTICS__ = {
+    getDiagnostics: () => diagnostics.slice(-150),
+    getAppRuntimeState: () => ({ ...appRuntimeState }),
+  };
+}
+
 function installGlobalErrorGuards() {
   window.addEventListener("error", (event) => {
     const context = {
@@ -1599,31 +1638,38 @@ function installGlobalErrorGuards() {
       return;
     }
 
-    logDiagnostic('warn', 'runtime error after startup window', context);
+    warnBoot("runtime error detected after startup", context);
   });
 
   window.addEventListener("unhandledrejection", (event) => {
     const context = { reason: String(event.reason) };
+    event.preventDefault?.();
 
     if (appRuntimeState.startupWindowOpen) {
-      failBoot("unhandled async rejection during startup", context);
+      warnBoot("async rejection detected during startup", context);
       return;
     }
 
-    logDiagnostic('warn', 'unhandled async rejection after startup window', context);
+    warnBoot("unhandled async rejection detected after startup", context);
   });
 }
 
 function boot() {
   installGlobalErrorGuards();
 
-  if (!guardAgainstWrongEntryPath()) return;
-  if (!ensureDomContract()) return;
+  try {
+    if (!guardAgainstWrongEntryPath()) return;
+    if (!ensureDomContract()) return;
 
-  initRenderingPipeline();
-  initAuthBridge();
-  mountExperienceShell();
-  appRuntimeState.startupWindowOpen = false;
+    initRenderingPipeline();
+    initAuthBridge();
+    mountExperienceShell();
+    runPhase12HealthChecks();
+  } catch (error) {
+    failBoot('fatal boot exception', { error: String(error) });
+  } finally {
+    appRuntimeState.startupWindowOpen = false;
+  }
 }
 
 boot();
