@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="RootAccess - Cyberpunk desktop hacking game shell"
+    />
+    <title>RootAccess // Boot Sequence</title>
+    <link rel="stylesheet" href="./main.css" />
+  </head>
+  <body>
+    <noscript>
+      <div class="boot-fallback boot-fallback--visible" role="alert">
+        RootAccess requires JavaScript enabled to initialize.
+      </div>
+    </noscript>
+
+    <div id="boot-fallback" class="boot-fallback boot-fallback--visible" role="alert" aria-live="polite">
+      RootAccess is initializing…
+    </div>
+
+    <div id="root" class="app-root" hidden>
+      <header class="desktop-topbar">
+        <div class="brand">ROOTACCESS</div>
+        <div class="status" id="boot-status">BOOTING…</div>
+      </header>
+
+      <main class="desktop-surface" id="desktop-surface" aria-label="RootAccess desktop shell">
+        <section class="window-shell" id="window-shell">
+          <h1>RootAccess Desktop Shell</h1>
+          <p>Core systems loading. Open apps will mount here in later tasks.</p>
+        </section>
+      </main>
+
+      <footer class="taskbar" aria-label="Taskbar">
+        <button class="taskbar-app">Terminal</button>
+        <button class="taskbar-app">Black Market</button>
+        <button class="taskbar-app">Index</button>
+        <button class="taskbar-app">Settings</button>
+      </footer>
+    </div>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

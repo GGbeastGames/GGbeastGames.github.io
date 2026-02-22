@@ -1,0 +1,130 @@
+:root {
+  color-scheme: dark;
+  --bg-primary: #071417;
+  --bg-secondary: #0c1f24;
+  --panel: rgba(7, 23, 30, 0.84);
+  --text-primary: #c7ffe8;
+  --text-secondary: #7be4c0;
+  --accent: #11f1b0;
+  --danger: #ff5c8a;
+  --shadow: 0 0 26px rgba(17, 241, 176, 0.18);
+  --radius: 14px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  font-family: "Segoe UI", Inter, system-ui, -apple-system, sans-serif;
+  background: radial-gradient(circle at 20% 20%, #14343f, var(--bg-primary) 55%);
+  color: var(--text-primary);
+}
+
+body {
+  display: grid;
+  min-height: 100vh;
+}
+
+.app-root {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 100vh;
+}
+
+.desktop-topbar {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid rgba(17, 241, 176, 0.18);
+  backdrop-filter: blur(6px);
+  background: rgba(2, 11, 16, 0.86);
+}
+
+.brand {
+  letter-spacing: 0.18em;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.status {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.desktop-surface {
+  padding: 1.1rem;
+  display: grid;
+}
+
+.window-shell {
+  border: 1px solid rgba(17, 241, 176, 0.22);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  padding: 1rem;
+  max-width: 760px;
+}
+
+.window-shell h1 {
+  margin: 0 0 0.6rem;
+  color: var(--accent);
+}
+
+.window-shell p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.taskbar {
+  display: flex;
+  gap: 0.55rem;
+  padding: 0.75rem;
+  border-top: 1px solid rgba(17, 241, 176, 0.18);
+  background: rgba(2, 11, 16, 0.92);
+  overflow-x: auto;
+}
+
+.taskbar-app {
+  border: 1px solid rgba(17, 241, 176, 0.25);
+  background: rgba(8, 31, 35, 0.9);
+  color: var(--text-primary);
+  border-radius: 10px;
+  padding: 0.5rem 0.8rem;
+  cursor: pointer;
+}
+
+.taskbar-app:hover {
+  border-color: var(--accent);
+}
+
+.boot-fallback {
+  margin: auto;
+  width: min(92vw, 720px);
+  padding: 1rem 1.2rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 92, 138, 0.5);
+  background: rgba(35, 6, 17, 0.9);
+  color: #ffd9e5;
+  box-shadow: 0 0 20px rgba(255, 92, 138, 0.15);
+  display: none;
+}
+
+.boot-fallback--visible {
+  display: block;
+}
+
+@media (max-width: 700px) {
+  .desktop-topbar,
+  .taskbar,
+  .desktop-surface {
+    padding-inline: 0.7rem;
+  }
+
+  .window-shell {
+    max-width: none;
+  }
+}
