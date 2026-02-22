@@ -6,7 +6,7 @@ import {
   signInWithEmailAndPassword,
   signOut
 } from 'firebase/auth';
-import { doc, onSnapshot, serverTimestamp, setDoc, collection, query, orderBy, deleteDoc } from 'firebase/firestore';
+import { doc, onSnapshot, serverTimestamp, setDoc, collection, query, orderBy, deleteDoc, getDoc } from 'firebase/firestore';
 import { auth, authPersistenceReady, db } from './config/firebase';
 import { BlackMarketApp } from './components/apps/BlackMarketApp';
 import { BlockchainApp } from './components/apps/BlockchainApp';
@@ -263,7 +263,7 @@ export function App() {
   const [authLoading, setAuthLoading] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [cloudAdmin, setCloudAdmin] = useState(false);
-  const [cloudHydrated, setCloudHydrated] = useState(false);
+  const [sessionReady, setSessionReady] = useState(false);
   const [cloudSyncError, setCloudSyncError] = useState('');
   const [authReady, setAuthReady] = useState(false);
   const [hydratedUid, setHydratedUid] = useState<string | null>(null);
@@ -331,7 +331,7 @@ export function App() {
           setHydratedUid(null);
           setInPvpQueue(false);
           setActiveMatch(null);
-          setCloudHydrated(false);
+          setSessionReady(false);
           resetStateToDefaults();
         }
 
@@ -340,45 +340,68 @@ export function App() {
         setUser(nextUser);
         setAuthReady(true);
 
-        if (!nextUser) {
-          setPhase('login');
-        }
+        setPhase(nextUser ? 'desktop' : 'login');
       });
     });
     return () => unsub();
   }, []);
 
   useEffect(() => {
-    if (!authReady || !user || hydratedUid !== user.uid) return;
-    setPhase('desktop');
-  }, [authReady, user, hydratedUid]);
+    if (!authReady || !user || hydratedUid === user.uid || sessionReady) return;
 
-  useEffect(() => {
-    if (!authReady || !user || hydratedUid === user.uid || cloudHydrated) return;
+    let cancelled = false;
 
-    const storageKey = getStorageKey(user.uid);
-    const fallback = createDefaultDesktopState();
+    const hydrateSession = async () => {
+      const activeUid = user.uid;
+      const playerRef = doc(db, 'players', activeUid);
+      const storageKey = getStorageKey(activeUid);
+      const fallback = createDefaultDesktopState();
+      let hydratedState: PersistedDesktop = fallback;
 
-    let nextState = fallback;
-    const raw = localStorage.getItem(storageKey);
-    if (raw) {
       try {
-        const parsed = JSON.parse(raw) as unknown;
-        if (isPersistedDesktop(parsed)) {
-          nextState = parsed;
+        const snapshot = await getDoc(playerRef);
+        if (snapshot.exists()) {
+          const data = snapshot.data() as Partial<CloudPlayerCard>;
+          setCloudAdmin(Boolean(data.roles?.admin));
+          if (isPersistedDesktop(data.desktopState)) {
+            hydratedState = data.desktopState;
+          }
         }
-      } catch {
-        nextState = fallback;
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : 'Unknown Firestore error';
+        setCloudSyncError(reason);
       }
-    }
 
-    applyDesktopState(nextState);
-    setHydratedUid(user.uid);
-  }, [authReady, user, hydratedUid, cloudHydrated]);
+      if (hydratedState === fallback) {
+        const raw = localStorage.getItem(storageKey);
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw) as unknown;
+            if (isPersistedDesktop(parsed)) {
+              hydratedState = parsed;
+            }
+          } catch {
+            hydratedState = fallback;
+          }
+        }
+      }
+
+      if (cancelled || activeUid !== auth.currentUser?.uid) return;
+
+      applyDesktopState(hydratedState);
+      setHydratedUid(activeUid);
+      setSessionReady(true);
+    };
+
+    void hydrateSession();
+    return () => {
+      cancelled = true;
+    };
+  }, [authReady, user, hydratedUid, sessionReady]);
 
   useEffect(() => {
     if (!user) {
-      setCloudHydrated(false);
+      setSessionReady(false);
       setCloudAdmin(false);
       setCloudSyncError('');
       setHydratedUid(null);
@@ -427,6 +450,7 @@ export function App() {
             };
 
             await setDoc(playerRef, bootstrap, { merge: true });
+            setCloudSyncError('');
           }
 
           const data = snapshot.data() as Partial<CloudPlayerCard>;
@@ -444,24 +468,20 @@ export function App() {
             cloudApplyRef.current = false;
           }, 0);
 
-          setCloudHydrated(true);
+          setSessionReady(true);
           setHydratedUid(activeUid);
           setCloudSyncError('');
         } catch (error) {
           const reason = error instanceof Error ? error.message : 'Unknown Firestore error';
           setCloudSyncError(reason);
-          setCloudHydrated(false);
-          setHydratedUid(null);
-          setAuthError(`Cloud sync failed (${import.meta.env.VITE_FIREBASE_PROJECT_ID ?? 'unknown-project'}): ${reason}`);
-          setPhase('login');
+          setSessionReady(true);
+          setAuthError(`Cloud sync warning (${import.meta.env.VITE_FIREBASE_PROJECT_ID ?? 'unknown-project'}): ${reason}`);
         }
       },
       (error) => {
         setCloudSyncError(error.message);
-        setCloudHydrated(false);
-        setHydratedUid(null);
-        setAuthError(`Cloud sync failed (${import.meta.env.VITE_FIREBASE_PROJECT_ID ?? 'unknown-project'}): ${error.message}`);
-        setPhase('login');
+        setSessionReady(true);
+        setAuthError(`Cloud sync warning (${import.meta.env.VITE_FIREBASE_PROJECT_ID ?? 'unknown-project'}): ${error.message}`);
       }
     );
 
@@ -469,7 +489,7 @@ export function App() {
   }, [user]);
 
   useEffect(() => {
-    if (!user || !cloudHydrated || cloudApplyRef.current || hydratedUid !== user.uid) return;
+    if (!user || !sessionReady || cloudApplyRef.current || hydratedUid !== user.uid) return;
 
     const timer = window.setTimeout(() => {
       const playerRef = doc(db, 'players', user.uid);
@@ -523,13 +543,18 @@ export function App() {
         }
       };
 
-      void setDoc(playerRef, payload, { merge: true });
+      void setDoc(playerRef, payload, { merge: true })
+        .then(() => setCloudSyncError(''))
+        .catch((error: unknown) => {
+          const reason = error instanceof Error ? error.message : 'Unknown Firestore error';
+          setCloudSyncError(reason);
+        });
     }, 500);
 
     return () => window.clearTimeout(timer);
   }, [
     user,
-    cloudHydrated,
+    sessionReady,
     hydratedUid,
     cloudAdmin,
     windows,
