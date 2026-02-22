@@ -29,6 +29,13 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+
+    match /pvpQueue/{uid} {
+      allow read: if signedIn();
+      allow create, update: if isOwner(uid) || isAdmin();
+      allow delete: if isOwner(uid) || isAdmin();
+    }
+
     match /leaderboards/{docId} {
       allow read: if true;
       allow write: if isAdmin();
@@ -48,6 +55,7 @@ service cloud.firestore {
 ```
 
 ## Realtime Database Rules (`Realtime Database > Rules`)
+> Realtime DB rules below are legacy/optional; matchmaking now uses Firestore `pvpQueue` by default.
 ```json
 {
   "rules": {

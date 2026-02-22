@@ -7,9 +7,8 @@ import {
   signOut
 } from 'firebase/auth';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
-import { onValue, ref as dbRef, remove, set } from 'firebase/database';
-import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
-import { auth, db, rtdb, storage } from './config/firebase';
+import { doc, onSnapshot, serverTimestamp, setDoc, collection, query, orderBy, deleteDoc } from 'firebase/firestore';
+import { auth, db, storage } from './config/firebase';
 import { BlackMarketApp } from './components/apps/BlackMarketApp';
 import { BlockchainApp } from './components/apps/BlockchainApp';
 import { CasinoApp } from './components/apps/CasinoApp';
@@ -135,7 +134,7 @@ type CloudPlayerCard = {
   };
 };
 
-const STORAGE_KEY = 'aionous.desktop.v4';
+const STORAGE_KEY = 'aionous.desktop.v5';
 const BOOT_MS = 2600;
 const MAX_LOGS = 100;
 
@@ -189,7 +188,7 @@ function grantXpRewards(state: PlayerState, xpReward: number): { next: PlayerSta
   return { next: nextState, logs: nextLogs };
 }
 
-function readPersisted(): PersistedDesktop {
+function readPersisted(storageKey: string): PersistedDesktop {
   const defaults: PersistedDesktop = {
     windows: seedWindows(),
     player: defaultPlayerState,
@@ -211,7 +210,7 @@ function readPersisted(): PersistedDesktop {
   };
 
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey);
     if (!raw) return defaults;
     const parsed = JSON.parse(raw) as Partial<PersistedDesktop>;
     return {
@@ -237,7 +236,7 @@ function readPersisted(): PersistedDesktop {
 
 export function App() {
   const [phase, setPhase] = useState<AppPhase>('boot');
-  const initial = useMemo(() => readPersisted(), []);
+  const initial = useMemo(() => readPersisted(`${STORAGE_KEY}.guest`), []);
   const [windows, setWindows] = useState<WindowState[]>(initial.windows);
   const [player, setPlayer] = useState<PlayerState>(initial.player);
   const [cooldowns, setCooldowns] = useState<Cooldowns>(initial.cooldowns);
@@ -268,6 +267,25 @@ export function App() {
 
   const dragRef = useRef<{ id: AppId; offsetX: number; offsetY: number } | null>(null);
   const cloudApplyRef = useRef(false);
+  const prevAuthUidRef = useRef<string | null>(null);
+
+  function loadStateFromCache(storageKey: string) {
+    const cached = readPersisted(storageKey);
+    setWindows(cached.windows);
+    setPlayer(cached.player);
+    setCooldowns(cached.cooldowns);
+    setProgression(cached.progression);
+    setShopInventory(cached.shopInventory);
+    setRetention(cached.retention);
+    setCasino(cached.casino);
+    setRanked(cached.ranked);
+    setBlockchain(cached.blockchain);
+    setGrowth(cached.growth);
+    setSeason(cached.season);
+    setAdmin(cached.admin);
+    setDisplaySettings(cached.displaySettings);
+    setLogs(cached.logs);
+  }
 
   useEffect(() => {
     const timer = window.setTimeout(() => setPhase('login'), BOOT_MS);
@@ -276,6 +294,15 @@ export function App() {
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (nextUser) => {
+      const nextUid = nextUser?.uid ?? null;
+      const prevUid = prevAuthUidRef.current;
+      if (nextUid !== prevUid) {
+        const storageKey = nextUid ? `${STORAGE_KEY}.${nextUid}` : `${STORAGE_KEY}.guest`;
+        loadStateFromCache(storageKey);
+        setInPvpQueue(false);
+        setActiveMatch(null);
+      }
+      prevAuthUidRef.current = nextUid;
       setUser(nextUser);
       if (nextUser) setPhase('desktop');
     });
@@ -456,8 +483,9 @@ export function App() {
   ]);
 
   useEffect(() => {
+    const storageKey = user?.uid ? `${STORAGE_KEY}.${user.uid}` : `${STORAGE_KEY}.guest`;
     localStorage.setItem(
-      STORAGE_KEY,
+      storageKey,
       JSON.stringify({
         windows,
         player,
@@ -475,7 +503,7 @@ export function App() {
         logs: logs.slice(-MAX_LOGS)
       } satisfies PersistedDesktop)
     );
-  }, [windows, player, cooldowns, progression, shopInventory, retention, casino, ranked, blockchain, growth, season, admin, displaySettings, logs]);
+  }, [user, windows, player, cooldowns, progression, shopInventory, retention, casino, ranked, blockchain, growth, season, admin, displaySettings, logs]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -494,23 +522,20 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const queuePath = dbRef(rtdb, 'pvp/queue');
-    const unsub = onValue(queuePath, (snap) => {
-      const raw = snap.val() as Record<string, { alias: string; rankedPoints: number; queuedAt: number }> | null;
-      if (!raw) {
-        setPvpQueue([]);
-        return;
-      }
-
-      const rows: PvpQueueEntry[] = Object.entries(raw).map(([id, value]) => ({
-        id,
-        alias: value.alias,
-        rankedPoints: value.rankedPoints,
-        queuedAt: value.queuedAt
-      }));
-      rows.sort((a, b) => b.queuedAt - a.queuedAt);
+    const queueQuery = query(collection(db, 'pvpQueue'), orderBy('queuedAt', 'desc'));
+    const unsub = onSnapshot(queueQuery, (snap) => {
+      const rows: PvpQueueEntry[] = snap.docs.map((row) => {
+        const value = row.data() as { alias: string; rankedPoints: number; queuedAt: number };
+        return {
+          id: row.id,
+          alias: value.alias,
+          rankedPoints: value.rankedPoints,
+          queuedAt: value.queuedAt
+        };
+      });
       setPvpQueue(rows);
     });
+
     return () => unsub();
   }, []);
 
@@ -663,29 +688,32 @@ export function App() {
   }
 
   function onTogglePvpQueue() {
+    if (!user?.uid) {
+      appendLogs([makeLog('PvP queue requires a signed-in account for Firestore matchmaking.', 'warn')]);
+      return;
+    }
+
     setInPvpQueue((prev) => !prev);
-    const queueId = user?.uid ?? `guest-${desktopIdentity.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
-    const queuePath = dbRef(rtdb, `pvp/queue/${queueId}`);
+    const queueRef = doc(db, 'pvpQueue', user.uid);
 
     if (!inPvpQueue) {
       const newEntry: PvpQueueEntry = {
-        id: queueId,
+        id: user.uid,
         alias: desktopIdentity,
         rankedPoints: ranked.rankedPoints,
         queuedAt: Date.now()
       };
-      void set(queuePath, {
+      void setDoc(queueRef, {
+        uid: user.uid,
         alias: newEntry.alias,
         rankedPoints: newEntry.rankedPoints,
         queuedAt: newEntry.queuedAt
       });
-      setPvpQueue((prev) => [newEntry, ...prev.filter((entry) => entry.id !== queueId)]);
       appendLogs([makeLog('PvP queue joined. Awaiting challenger...', 'info')]);
       return;
     }
 
-    void remove(queuePath);
-    setPvpQueue((prev) => prev.filter((entry) => entry.id !== queueId));
+    void deleteDoc(queueRef);
     appendLogs([makeLog('PvP queue left.', 'warn')]);
   }
 
@@ -965,6 +993,9 @@ export function App() {
   }
 
   async function handleSignOut() {
+    if (user?.uid && inPvpQueue) {
+      await deleteDoc(doc(db, 'pvpQueue', user.uid));
+    }
     await signOut(auth);
     setGuestMode(false);
     setPhase('login');

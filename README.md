@@ -61,6 +61,7 @@ Build also creates `dist/404.html` + `dist/.nojekyll` for GitHub Pages SPA fallb
 - `docs/PHASE_11_SEASONS_COSMETICS_MENTOR.md`
 - `docs/PHASE_12_ADMIN_LIVEOPS.md`
 - `docs/PHASE_13_STABILITY_GUI_ENHANCEMENTS.md`
+- `docs/PHASE_2_FIRESTORE_AUTH_AND_IDENTITY.md`
 - `config/FIREBASE_RULES.md`
 - `config/FIREBASE_SETUP.md`
 - `config/FIRESTORE_PLAYER_CARD_SCHEMA.md`
@@ -83,3 +84,7 @@ If GitHub Pages is serving repository source instead of `dist/`, `index.html` no
 
 ## Phase 1 data sync (Firestore player card)
 Signed-in users now bootstrap and sync a `players/{uid}` document (profile, roles, economy, stats, progression, and desktop state). Guest mode remains local-only.
+
+
+## Phase 2 account isolation + Firestore queue
+Cache now isolates by user ID (`aionous.desktop.v5.<uid>`) and PvP queue uses Firestore (`pvpQueue`) so signed-in data stays account-scoped.
