@@ -1,6 +1,6 @@
 import { FormEvent, useMemo, useState } from 'react';
 
-type CommandOutcome = {
+export type CommandOutcome = {
   ok: boolean;
   commandId: string;
   success: boolean;
@@ -13,7 +13,7 @@ type CommandOutcome = {
   message: string;
 };
 
-type CommandMeta = {
+export type CommandMeta = {
   id: string;
   aliases: string[];
   usage: string;
@@ -21,28 +21,19 @@ type CommandMeta = {
   cooldownMs: number;
 };
 
-const COMMANDS: CommandMeta[] = [
-  {
-    id: 'phish',
-    aliases: ['ph'],
-    usage: 'phish',
-    description: 'Run a social-engineering operation for cash + XP (risk of penalty).',
-    cooldownMs: 12_000,
-  },
-];
-
 const CLIENT_RATE_LIMIT_MS = 1_000;
 const MAX_HISTORY = 40;
 
 type HistoryEntry = { id: string; tone: 'system' | 'success' | 'error'; text: string };
 
 interface TerminalConsoleProps {
+  commands: CommandMeta[];
   executeCommandRequest: (command: string) => Promise<CommandOutcome>;
 }
 
 const formatMs = (ms: number) => `${Math.max(1, Math.ceil(ms / 1000))}s`;
 
-export const TerminalConsole = ({ executeCommandRequest }: TerminalConsoleProps) => {
+export const TerminalConsole = ({ commands, executeCommandRequest }: TerminalConsoleProps) => {
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [lastSubmitAt, setLastSubmitAt] = useState(0);
@@ -51,9 +42,9 @@ export const TerminalConsole = ({ executeCommandRequest }: TerminalConsoleProps)
   ]);
 
   const commandMap = useMemo(() => {
-    const entries = COMMANDS.flatMap((command) => [command.id, ...command.aliases].map((key) => [key, command] as const));
+    const entries = commands.flatMap((command) => [command.id, ...command.aliases].map((key) => [key, command] as const));
     return new Map(entries);
-  }, []);
+  }, [commands]);
 
   const push = (tone: HistoryEntry['tone'], text: string) => {
     setHistory((prev) => [...prev.slice(-MAX_HISTORY + 1), { id: crypto.randomUUID(), tone, text }]);
@@ -82,8 +73,8 @@ export const TerminalConsole = ({ executeCommandRequest }: TerminalConsoleProps)
     }
 
     if (raw === 'help') {
-      for (const command of COMMANDS) {
-        push('system', `${command.usage.padEnd(8)} | cooldown ${formatMs(command.cooldownMs)} | ${command.description}`);
+      for (const command of commands) {
+        push('system', `${command.usage.padEnd(14)} | cooldown ${formatMs(command.cooldownMs)} | ${command.description}`);
       }
 
       push('system', 'Utility: help, clear');
@@ -91,15 +82,15 @@ export const TerminalConsole = ({ executeCommandRequest }: TerminalConsoleProps)
     }
 
     const [head] = raw.toLowerCase().split(/\s+/);
-    const command = commandMap.get(head);
-    if (!command) {
+    const normalized = head.endsWith('-ts') ? head.slice(0, -3) : head;
+    if (!commandMap.get(normalized)) {
       push('error', `Unknown command "${head}". Use help.`);
       return;
     }
 
     setBusy(true);
     try {
-      const result = await executeCommandRequest(command.id);
+      const result = await executeCommandRequest(head);
       const deltaPrefix = result.walletDelta >= 0 ? '+' : '';
       push(
         result.success ? 'success' : 'error',
