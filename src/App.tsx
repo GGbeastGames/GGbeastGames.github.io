@@ -63,6 +63,7 @@ import {
 import { SeasonState, applyTheme, buyCosmetic, createMentorTicket, defaultSeasonState, matchMentor } from './game/season';
 import { AdminState, appendAudit, createShopItemTemplate, defaultAdminState, grantCommandWithTrait, upsertPlayerFlag } from './game/admin';
 import { DisplaySettings, clampUiScale, defaultDisplaySettings } from './game/settings';
+import { canPerformAdminAction, nextQueueIntent } from './app/sessionPolicy';
 
 type AppPhase = 'boot' | 'login' | 'desktop';
 type AppId = 'terminal' | 'market' | 'index' | 'profile' | 'casino' | 'pvp' | 'blockchain' | 'growth' | 'season' | 'admin' | 'settings';
@@ -461,7 +462,7 @@ export function App() {
           setCloudAdmin(Boolean(data.roles?.admin));
 
           // Cloud snapshot has precedence and will overwrite any local hydration once available.
-          const remote = data.desktopState ?? createDefaultDesktopState();
+          const remote = isPersistedDesktop(data.desktopState) ? data.desktopState : createDefaultDesktopState();
           cloudApplyRef.current = true;
           applyDesktopState(remote);
           window.setTimeout(() => {
@@ -475,13 +476,13 @@ export function App() {
           const reason = error instanceof Error ? error.message : 'Unknown Firestore error';
           setCloudSyncError(reason);
           setSessionReady(true);
-          setAuthError(`Cloud sync warning (${import.meta.env.VITE_FIREBASE_PROJECT_ID ?? 'unknown-project'}): ${reason}`);
+          // Keep auth and cloud sync concerns decoupled: sync failures are non-blocking warnings.
         }
       },
       (error) => {
         setCloudSyncError(error.message);
         setSessionReady(true);
-        setAuthError(`Cloud sync warning (${import.meta.env.VITE_FIREBASE_PROJECT_ID ?? 'unknown-project'}): ${error.message}`);
+        // Keep auth and cloud sync concerns decoupled: sync failures are non-blocking warnings.
       }
     );
 
@@ -711,6 +712,7 @@ export function App() {
     const email = user?.email?.toLowerCase() ?? '';
     return cloudAdmin || (!!email && allow.includes(email));
   }, [user, cloudAdmin]);
+  const hasTrustedAdminRole = cloudAdmin;
   const topZ = useMemo(() => Math.max(...windows.map((windowItem) => windowItem.z), 0), [windows]);
   const successRate = useMemo(() => Math.round(getSuccessRate(player) * 100), [player]);
   const ownedCommandKeys = useMemo(() => getOwnedCommandKeys(progression.ownedCommands), [progression.ownedCommands]);
@@ -822,10 +824,10 @@ export function App() {
       return;
     }
 
-    setInPvpQueue((prev) => !prev);
     const queueRef = doc(db, 'pvpQueue', user.uid);
 
-    if (!inPvpQueue) {
+    if (nextQueueIntent(inPvpQueue) === 'join') {
+      setInPvpQueue(true);
       const newEntry: PvpQueueEntry = {
         id: user.uid,
         alias: desktopIdentity,
@@ -842,6 +844,7 @@ export function App() {
       return;
     }
 
+    setInPvpQueue(false);
     void deleteDoc(queueRef);
     appendLogs([makeLog('PvP queue left.', 'warn')]);
   }
@@ -984,13 +987,13 @@ export function App() {
   }
 
   function onAdminSetBanner(text: string) {
-    if (!isAdmin) return;
+    if (!canPerformAdminAction(hasTrustedAdminRole)) return;
     setAdmin((prev) => appendAudit({ ...prev, globalBanner: text }, desktopIdentity, 'set_banner', text || '<clear>'));
     appendLogs([makeLog(`Admin banner ${text ? 'updated' : 'cleared'}.`, 'success')]);
   }
 
   function onAdminToggleFeature(key: 'chatOpen' | 'pollsEnabled') {
-    if (!isAdmin) return;
+    if (!canPerformAdminAction(hasTrustedAdminRole)) return;
     setAdmin((prev) => {
       const next = {
         ...prev,
@@ -1001,7 +1004,7 @@ export function App() {
   }
 
   function onAdminGrantCommand(command: BaseCommandId, withTrait: boolean) {
-    if (!isAdmin) return;
+    if (!canPerformAdminAction(hasTrustedAdminRole)) return;
     const trait = withTrait ? 'spring' : null;
     const commandKey = grantCommandWithTrait(command, trait);
     setProgression((prev) => ({
@@ -1022,7 +1025,7 @@ export function App() {
   }
 
   function onAdminAddShopItem(command: BaseCommandId, limited: boolean) {
-    if (!isAdmin) return;
+    if (!canPerformAdminAction(hasTrustedAdminRole)) return;
     const item = createShopItemTemplate(command, Math.floor(Math.random() * 9) + 1, limited);
     setShopInventory((prev) => [item, ...prev]);
     setAdmin((prev) => appendAudit(prev, desktopIdentity, 'shop_item_create', item.id));
@@ -1030,12 +1033,12 @@ export function App() {
   }
 
   function onAdminFlagPlayer(alias: string, note: string) {
-    if (!isAdmin) return;
+    if (!canPerformAdminAction(hasTrustedAdminRole)) return;
     setAdmin((prev) => appendAudit(upsertPlayerFlag(prev, alias, { flagged: true, note }), desktopIdentity, 'flag_player', alias));
   }
 
   function onAdminTempBan(alias: string, hours: number) {
-    if (!isAdmin) return;
+    if (!canPerformAdminAction(hasTrustedAdminRole)) return;
     setAdmin((prev) =>
       appendAudit(
         upsertPlayerFlag(prev, alias, { tempBanUntil: Date.now() + hours * 3600_000, flagged: true }),
@@ -1047,7 +1050,7 @@ export function App() {
   }
 
   function onAdminPermBan(alias: string) {
-    if (!isAdmin) return;
+    if (!canPerformAdminAction(hasTrustedAdminRole)) return;
     setAdmin((prev) => appendAudit(upsertPlayerFlag(prev, alias, { permBanned: true, flagged: true }), desktopIdentity, 'perm_ban', alias));
   }
 
@@ -1106,7 +1109,6 @@ export function App() {
     }
     await signOut(auth);
     setHydratedUid(null);
-    setCloudHydrated(false);
     resetStateToDefaults();
     setPhase('login');
   }
