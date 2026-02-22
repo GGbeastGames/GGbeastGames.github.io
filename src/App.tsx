@@ -63,8 +63,9 @@ import {
 import { SeasonState, applyTheme, buyCosmetic, createMentorTicket, defaultSeasonState, matchMentor } from './game/season';
 import { AdminState, appendAudit, createShopItemTemplate, defaultAdminState, grantCommandWithTrait, upsertPlayerFlag } from './game/admin';
 import { DisplaySettings, clampUiScale, defaultDisplaySettings } from './game/settings';
-import { canPerformAdminAction, nextQueueIntent } from './app/sessionPolicy';
+import { SessionMode, canPerformAdminAction, getSessionMode, nextQueueIntent } from './app/sessionPolicy';
 import { canWriteForHydratedUser, shouldApplySnapshotForActiveUser, shouldResetForUidChange } from './app/authIsolation';
+import { DESKTOP_SCHEMA_VERSION } from './app/desktopState';
 
 type AppPhase = 'boot' | 'login' | 'desktop';
 type AppId = 'terminal' | 'market' | 'index' | 'profile' | 'casino' | 'pvp' | 'blockchain' | 'growth' | 'season' | 'admin' | 'settings';
@@ -136,7 +137,6 @@ type CloudPlayerCard = {
   };
 };
 
-const DESKTOP_SCHEMA_VERSION = 2;
 const BOOT_MS = 2600;
 const MAX_LOGS = 100;
 
@@ -266,12 +266,21 @@ export function App() {
   const [cloudSyncError, setCloudSyncError] = useState('');
   const [authReady, setAuthReady] = useState(false);
   const [hydratedUid, setHydratedUid] = useState<string | null>(null);
+  const [migrationNotice, setMigrationNotice] = useState<string>('');
 
   const dragRef = useRef<{ id: AppId; offsetX: number; offsetY: number } | null>(null);
   const cloudApplyRef = useRef(false);
   const prevAuthUidRef = useRef<string | null>(null);
   const writeTimerRef = useRef<number | null>(null);
   const activeHydrationUidRef = useRef<string | null>(null);
+  const writeEpochRef = useRef(0);
+
+  const sessionMode: SessionMode = getSessionMode(Boolean(user));
+  const isViewer = sessionMode === 'viewer';
+
+  function requirePlayerSession(): boolean {
+    return Boolean(user?.uid && sessionMode === 'player');
+  }
 
   function resetStateToDefaults() {
     const defaults = createDefaultDesktopState();
@@ -309,6 +318,7 @@ export function App() {
   }
 
   function clearSessionGuards() {
+    writeEpochRef.current += 1;
     cloudApplyRef.current = false;
     activeHydrationUidRef.current = null;
     if (writeTimerRef.current !== null) {
@@ -319,8 +329,8 @@ export function App() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      if (phase === 'boot' && authReady && !user) {
-        setPhase('login');
+      if (phase === 'boot' && authReady) {
+        setPhase('desktop');
       }
     }, BOOT_MS);
     return () => window.clearTimeout(timer);
@@ -352,11 +362,11 @@ export function App() {
         setUser(nextUser);
         setAuthReady(true);
 
-        setPhase(nextUser ? 'boot' : 'login');
+        setPhase('boot');
       });
     });
     return () => unsub();
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     if (!user) {
@@ -370,13 +380,6 @@ export function App() {
     const activeUid = user.uid;
     activeHydrationUidRef.current = activeUid;
     const playerRef = doc(db, 'players', activeUid);
-
-    const resolveDesktop = (data: Partial<CloudPlayerCard> | undefined): PersistedDesktop => {
-      if (data?.schemaVersion !== DESKTOP_SCHEMA_VERSION || !isPersistedDesktop(data.desktopState)) {
-        return createDefaultDesktopState();
-      }
-      return data.desktopState;
-    };
 
     const unsub = onSnapshot(
       playerRef,
@@ -429,10 +432,45 @@ export function App() {
             return;
           }
 
-          setCloudAdmin(Boolean(data.roles?.admin));
+          const hasValidDesktop = data?.schemaVersion === DESKTOP_SCHEMA_VERSION && isPersistedDesktop(data.desktopState);
+          if (!hasValidDesktop) {
+            const defaults = createDefaultDesktopState();
+            await setDoc(playerRef, {
+              uid: activeUid,
+              schemaVersion: DESKTOP_SCHEMA_VERSION,
+              profile: {
+                email: user.email ?? '',
+                alias: user.email ?? 'Operator',
+                photoURL: null
+              },
+              roles: { admin: false, moderator: false },
+              economy: {
+                nops: defaults.player.nops,
+                flux: defaults.casino.flux,
+                trace: defaults.player.trace,
+                level: defaults.player.level,
+                xp: defaults.player.xp
+              },
+              stats: {
+                totalRuns: defaults.player.totalRuns,
+                successfulRuns: defaults.player.totalSuccess,
+                rankedPoints: defaults.ranked.rankedPoints,
+                streakDays: defaults.retention.streakDays
+              },
+              progression: {
+                ownedCommandCount: defaults.progression.ownedCommands.length,
+                pendingLessonCount: defaults.progression.pendingLessons.length
+              },
+              desktopState: defaults,
+              meta: {
+                source: 'aionous-client',
+                updatedAt: serverTimestamp()
+              }
+            });
+          }
 
-          // Cloud snapshot has precedence and will overwrite any local hydration once available.
-          const remote = resolveDesktop(data);
+          setCloudAdmin(Boolean(data.roles?.admin));
+          const remote: PersistedDesktop = hasValidDesktop ? (data.desktopState as PersistedDesktop) : createDefaultDesktopState();
           cloudApplyRef.current = true;
           replaceDesktopState(remote);
           window.setTimeout(() => {
@@ -519,9 +557,14 @@ export function App() {
         }
       };
 
-      void setDoc(playerRef, payload, { merge: true })
-        .then(() => setCloudSyncError(''))
+      const writeEpoch = writeEpochRef.current;
+      void setDoc(playerRef, payload)
+        .then(() => {
+          if (writeEpoch !== writeEpochRef.current) return;
+          setCloudSyncError('');
+        })
         .catch((error: unknown) => {
+          if (writeEpoch !== writeEpochRef.current) return;
           const reason = error instanceof Error ? error.message : 'Unknown Firestore error';
           setCloudSyncError(reason);
         });
@@ -555,28 +598,50 @@ export function App() {
   ]);
 
   useEffect(() => {
-    const legacyKeys = ['aionous.desktop.v4', 'aionous.desktop.v5.guest', 'aionous.desktop.v5.signed-default', 'aionous.desktop.v5.signed-out'];
-    legacyKeys.forEach((key) => localStorage.removeItem(key));
+    const migrationMarker = 'aionous.desktop.v7.migrated';
+    if (localStorage.getItem(migrationMarker)) return;
+    const legacyKeys = [
+      'aionous.desktop.v4',
+      'aionous.desktop.v5.guest',
+      'aionous.desktop.v5.signed-default',
+      'aionous.desktop.v5.signed-out',
+      'aionous.desktop.v6.guest',
+      'aionous.desktop.v6.shared'
+    ];
+    let removed = 0;
+    legacyKeys.forEach((key) => {
+      if (localStorage.getItem(key) !== null) {
+        localStorage.removeItem(key);
+        removed += 1;
+      }
+    });
     Object.keys(localStorage)
-      .filter((key) => key.startsWith('aionous.desktop.v5'))
-      .forEach((key) => localStorage.removeItem(key));
+      .filter((key) => key.startsWith('aionous.desktop.v5') || key.startsWith('aionous.desktop.v6'))
+      .forEach((key) => {
+        localStorage.removeItem(key);
+        removed += 1;
+      });
+    localStorage.setItem(migrationMarker, '1');
+    const message = `Desktop schema v${DESKTOP_SCHEMA_VERSION} migration: cleared ${removed} legacy guest/shared keys.`;
+    setMigrationNotice(message);
+    console.info(message);
   }, []);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
-      setPlayer((prev) => passiveTraceDecay(prev));
-      setRetention((prev) => applyDailyReset(prev));
+      setPlayer((prev) => (user ? passiveTraceDecay(prev) : prev));
+      setRetention((prev) => (user ? applyDailyReset(prev) : prev));
     }, 5_000);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
-      setBlockchain((prev) => maybeRefreshMarket(prev));
-      setGrowth((prev) => decayHeat(prev));
+      setBlockchain((prev) => (user ? maybeRefreshMarket(prev) : prev));
+      setGrowth((prev) => (user ? decayHeat(prev) : prev));
     }, 10_000);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     if (!user) {
@@ -612,7 +677,7 @@ export function App() {
 
   useEffect(() => {
     const onMove = (event: MouseEvent) => {
-      if (!dragRef.current) return;
+      if (!dragRef.current || isViewer) return;
       const { id, offsetX, offsetY } = dragRef.current;
       const maxX = Math.max(window.innerWidth - 240, 12);
       const maxY = Math.max(window.innerHeight - 210, 48);
@@ -640,7 +705,7 @@ export function App() {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, []);
+  }, [isViewer]);
 
   const desktopIdentity = useMemo(() => user?.email ?? 'Anonymous', [user]);
   const isAdmin = useMemo(() => {
@@ -663,6 +728,7 @@ export function App() {
   }
 
   function onBuyMarketItem(itemId: string) {
+    if (!requirePlayerSession()) return;
     const item = shopInventory.find((shopItem) => shopItem.id === itemId);
     if (!item || !isShopItemAvailable(item) || player.nops < item.price) return;
 
@@ -675,6 +741,7 @@ export function App() {
   }
 
   function onCompleteLesson(itemId: string) {
+    if (!requirePlayerSession()) return;
     const pendingItem = progression.pendingLessons.find((item) => item.id === itemId);
     if (!pendingItem) return;
     const trait = randomTraitRoll();
@@ -715,6 +782,7 @@ export function App() {
   }
 
   function onClaimMission(missionId: string) {
+    if (!requirePlayerSession()) return;
     const result = claimMissionReward(retention, missionId);
     if (!result.xp && !result.nops) return;
 
@@ -728,6 +796,7 @@ export function App() {
   }
 
   function onClaimDailyStreak() {
+    if (!requirePlayerSession()) return;
     const result = claimDailyStreak(retention);
     if (!result.nops) return;
     setRetention(result.next);
@@ -736,6 +805,7 @@ export function App() {
   }
 
   function onPlayCasino(game: 'high-low' | 'neon-wheel', wager: number) {
+    if (!requirePlayerSession()) return;
     if (wager > player.nops) {
       appendLogs([makeLog('Casino wager denied: insufficient Ø balance.', 'warn')]);
       return;
@@ -753,12 +823,14 @@ export function App() {
   }
 
   function onBuyCasinoCharm() {
+    if (!requirePlayerSession()) return;
     const result = buyLuckCharm(casino);
     setCasino(result.next);
     appendLogs([makeLog(result.message, result.ok ? 'success' : 'warn')]);
   }
 
   function onTogglePvpQueue() {
+    if (!requirePlayerSession()) return;
     if (!user?.uid) {
       appendLogs([makeLog('PvP queue requires a signed-in account for Firestore matchmaking.', 'warn')]);
       return;
@@ -790,6 +862,7 @@ export function App() {
   }
 
   function onStartPvpMatch(opponentAlias: string) {
+    if (!requirePlayerSession()) return;
     if (activeMatch) return;
     const match = createMatch(opponentAlias);
     setActiveMatch(match);
@@ -797,6 +870,7 @@ export function App() {
   }
 
   function onPlayPvpRound() {
+    if (!requirePlayerSession()) return;
     if (!activeMatch) return;
     const next = playRound(activeMatch);
     setActiveMatch(next);
@@ -826,6 +900,7 @@ export function App() {
   }
 
   function onBuyShares(ticker: keyof BlockchainState['companies'], amount: number) {
+    if (!requirePlayerSession()) return;
     const result = buyShares(blockchain, ticker, amount, player.nops);
     if (!result.cost) {
       appendLogs([makeLog(result.message, 'warn')]);
@@ -838,6 +913,7 @@ export function App() {
   }
 
   function onSellShares(ticker: keyof BlockchainState['companies'], amount: number) {
+    if (!requirePlayerSession()) return;
     const result = sellShares(blockchain, ticker, amount);
     if (!result.payout) {
       appendLogs([makeLog(result.message, 'warn')]);
@@ -850,6 +926,7 @@ export function App() {
   }
 
   function onUpgradeBlockSecurity(ticker: keyof BlockchainState['companies']) {
+    if (!requirePlayerSession()) return;
     const result = upgradeBlockSecurity(blockchain, ticker, player.nops);
     if (!result.cost) {
       appendLogs([makeLog(result.message, 'warn')]);
@@ -862,17 +939,20 @@ export function App() {
   }
 
   function onPickFaction(faction: FactionId) {
+    if (!requirePlayerSession()) return;
     setGrowth((prev) => chooseFaction(prev, faction));
     appendLogs([makeLog(`Faction selected: ${faction}.`, 'success')]);
   }
 
   function onStartGrowthContract(contractId: string) {
+    if (!requirePlayerSession()) return;
     const result = startContract(growth, contractId);
     setGrowth(result.next);
     appendLogs([makeLog(result.message, result.ok ? 'success' : 'warn')]);
   }
 
   function onResolveGrowthContract() {
+    if (!requirePlayerSession()) return;
     const result = resolveContract(growth);
     setGrowth(result.next);
     appendLogs([makeLog(result.message, result.finished ? 'success' : 'warn')]);
@@ -884,6 +964,7 @@ export function App() {
   }
 
   function onCraftGrowthCommand(left: string, right: string, useBoost: boolean) {
+    if (!requirePlayerSession()) return;
     const result = craftCommand(growth, left, right, useBoost);
     setGrowth(result.next);
     appendLogs([
@@ -895,6 +976,7 @@ export function App() {
   }
 
   function onBuySeasonCosmetic(itemId: string, price: number) {
+    if (!requirePlayerSession()) return;
     if (player.nops < price) {
       appendLogs([makeLog('Not enough Ø to buy cosmetic.', 'warn')]);
       return;
@@ -910,30 +992,35 @@ export function App() {
   }
 
   function onApplySeasonTheme(itemId: string) {
+    if (!requirePlayerSession()) return;
     setSeason((prev) => applyTheme(prev, itemId));
     appendLogs([makeLog(`Theme applied: ${itemId}.`, 'info')]);
   }
 
   function onCreateSeasonMentorTicket() {
+    if (!requirePlayerSession()) return;
     const result = createMentorTicket(season, desktopIdentity);
     setSeason(result.next);
     appendLogs([makeLog(`Mentor ticket created: ${result.id}.`, 'success')]);
   }
 
   function onMatchSeasonMentor(ticketId: string) {
+    if (!requirePlayerSession()) return;
     if (!ticketId) return;
     setSeason((prev) => matchMentor(prev, ticketId, desktopIdentity));
     appendLogs([makeLog(`Mentor ticket matched: ${ticketId}.`, 'success')]);
   }
 
   function onAdminSetBanner(text: string) {
-    if (!canPerformAdminAction(hasTrustedAdminRole)) return;
+    if (!requirePlayerSession()) return;
+    if (!canPerformAdminAction(hasTrustedAdminRole, sessionMode)) return;
     setAdmin((prev) => appendAudit({ ...prev, globalBanner: text }, desktopIdentity, 'set_banner', text || '<clear>'));
     appendLogs([makeLog(`Admin banner ${text ? 'updated' : 'cleared'}.`, 'success')]);
   }
 
   function onAdminToggleFeature(key: 'chatOpen' | 'pollsEnabled') {
-    if (!canPerformAdminAction(hasTrustedAdminRole)) return;
+    if (!requirePlayerSession()) return;
+    if (!canPerformAdminAction(hasTrustedAdminRole, sessionMode)) return;
     setAdmin((prev) => {
       const next = {
         ...prev,
@@ -944,7 +1031,8 @@ export function App() {
   }
 
   function onAdminGrantCommand(command: BaseCommandId, withTrait: boolean) {
-    if (!canPerformAdminAction(hasTrustedAdminRole)) return;
+    if (!requirePlayerSession()) return;
+    if (!canPerformAdminAction(hasTrustedAdminRole, sessionMode)) return;
     const trait = withTrait ? 'spring' : null;
     const commandKey = grantCommandWithTrait(command, trait);
     setProgression((prev) => ({
@@ -965,7 +1053,8 @@ export function App() {
   }
 
   function onAdminAddShopItem(command: BaseCommandId, limited: boolean) {
-    if (!canPerformAdminAction(hasTrustedAdminRole)) return;
+    if (!requirePlayerSession()) return;
+    if (!canPerformAdminAction(hasTrustedAdminRole, sessionMode)) return;
     const item = createShopItemTemplate(command, Math.floor(Math.random() * 9) + 1, limited);
     setShopInventory((prev) => [item, ...prev]);
     setAdmin((prev) => appendAudit(prev, desktopIdentity, 'shop_item_create', item.id));
@@ -973,12 +1062,14 @@ export function App() {
   }
 
   function onAdminFlagPlayer(alias: string, note: string) {
-    if (!canPerformAdminAction(hasTrustedAdminRole)) return;
+    if (!requirePlayerSession()) return;
+    if (!canPerformAdminAction(hasTrustedAdminRole, sessionMode)) return;
     setAdmin((prev) => appendAudit(upsertPlayerFlag(prev, alias, { flagged: true, note }), desktopIdentity, 'flag_player', alias));
   }
 
   function onAdminTempBan(alias: string, hours: number) {
-    if (!canPerformAdminAction(hasTrustedAdminRole)) return;
+    if (!requirePlayerSession()) return;
+    if (!canPerformAdminAction(hasTrustedAdminRole, sessionMode)) return;
     setAdmin((prev) =>
       appendAudit(
         upsertPlayerFlag(prev, alias, { tempBanUntil: Date.now() + hours * 3600_000, flagged: true }),
@@ -990,23 +1081,28 @@ export function App() {
   }
 
   function onAdminPermBan(alias: string) {
-    if (!canPerformAdminAction(hasTrustedAdminRole)) return;
+    if (!requirePlayerSession()) return;
+    if (!canPerformAdminAction(hasTrustedAdminRole, sessionMode)) return;
     setAdmin((prev) => appendAudit(upsertPlayerFlag(prev, alias, { permBanned: true, flagged: true }), desktopIdentity, 'perm_ban', alias));
   }
 
   function bringToFront(id: AppId) {
+    if (isViewer) return;
     setWindows((prev) => prev.map((w) => (w.id === id ? { ...w, z: topZ + 1 } : w)));
   }
 
   function openWindow(id: AppId) {
+    if (isViewer) return;
     setWindows((prev) => prev.map((w) => (w.id === id ? { ...w, isOpen: true, isMinimized: false, z: topZ + 1 } : w)));
   }
 
   function closeWindow(id: AppId) {
+    if (isViewer) return;
     setWindows((prev) => prev.map((w) => (w.id === id ? { ...w, isOpen: false, isMinimized: false } : w)));
   }
 
   function toggleMinimize(id: AppId) {
+    if (isViewer) return;
     setWindows((prev) =>
       prev.map((w) =>
         w.id === id
@@ -1022,6 +1118,7 @@ export function App() {
   }
 
   function toggleMaximize(id: AppId) {
+    if (isViewer) return;
     setWindows((prev) => prev.map((w) => (w.id === id ? { ...w, isMaximized: !w.isMaximized, isMinimized: false, z: topZ + 1 } : w)));
   }
 
@@ -1052,7 +1149,7 @@ export function App() {
     setHydratedUid(null);
     setSessionReady(false);
     resetStateToDefaults();
-    setPhase('login');
+    setPhase('desktop');
   }
 
   if (phase === 'boot') {
@@ -1118,7 +1215,7 @@ export function App() {
 
   return (
     <main
-      className={`desktop-shell phase4-desktop theme-${displaySettings.theme}${displaySettings.highContrast ? ' theme-high-contrast' : ''}${displaySettings.reducedMotion ? ' reduced-motion' : ''}`}
+      className={`desktop-shell phase4-desktop ${isViewer ? 'viewer-readonly' : ''} theme-${displaySettings.theme}${displaySettings.highContrast ? ' theme-high-contrast' : ''}${displaySettings.reducedMotion ? ' reduced-motion' : ''}`}
       style={{ '--ui-scale': String(clampUiScale(displaySettings.uiScale)) } as CSSProperties}
     >
       <div className="desktop-wallpaper" />
@@ -1135,11 +1232,19 @@ export function App() {
           <article><small>Flux</small><strong>{casino.flux}ƒ</strong></article>
           <article><small>Rank</small><strong>{ranked.rankedPoints} RP</strong></article>
         </div>
-        <button type="button" onClick={handleSignOut} className="danger">
-          Sign Out
-        </button>
+        {user ? (
+          <button type="button" onClick={handleSignOut} className="danger">
+            Sign Out
+          </button>
+        ) : (
+          <button type="button" onClick={() => setPhase('login')}>
+            Sign In
+          </button>
+        )}
       </header>
 
+      {isViewer ? <div className="global-banner">Viewer mode: read-only preview. Sign in to enable progression and saving.</div> : null}
+      {migrationNotice ? <div className="global-banner">{migrationNotice}</div> : null}
       {cloudSyncError ? <div className="global-banner">Firestore sync error: {cloudSyncError}</div> : null}
       {admin.globalBanner ? <div className="global-banner">{admin.globalBanner}</div> : null}
 

@@ -41,8 +41,8 @@ export type PersistedDesktop = {
   displaySettings: DisplaySettings;
 };
 
-export const STORAGE_KEY = 'aionous.desktop.v6';
-export const DESKTOP_SCHEMA_VERSION = 2;
+export const STORAGE_KEY = 'aionous.desktop.v7';
+export const DESKTOP_SCHEMA_VERSION = 3;
 export const MAX_LOGS = 100;
 
 export function getStorageKey(uid: string): string {

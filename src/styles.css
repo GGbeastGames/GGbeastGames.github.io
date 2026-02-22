@@ -441,3 +441,12 @@ button:hover { background: rgba(57,255,185,.14); }
   animation-iteration-count: 1 !important;
   transition-duration: 0.001ms !important;
 }
+
+.viewer-readonly .window-content button,
+.viewer-readonly .window-content input,
+.viewer-readonly .window-content select,
+.viewer-readonly .window-content textarea {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
