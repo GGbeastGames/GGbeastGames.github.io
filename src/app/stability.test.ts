@@ -30,4 +30,10 @@ describe('stability policies', () => {
     const parsed = parseDesktopEnvelope(serialized);
     expect(parsed).toEqual(initial);
   });
+
+  it('rejects legacy schema payloads to prevent mixed account hydration', () => {
+    const defaults = createDefaultDesktopState();
+    const parsed = parseDesktopEnvelope({ schemaVersion: 1, desktopState: defaults });
+    expect(parsed).toBeNull();
+  });
 });

@@ -6,7 +6,7 @@ import {
   signInWithEmailAndPassword,
   signOut
 } from 'firebase/auth';
-import { doc, onSnapshot, serverTimestamp, setDoc, collection, query, orderBy, deleteDoc, getDoc } from 'firebase/firestore';
+import { doc, onSnapshot, serverTimestamp, setDoc, collection, query, orderBy, deleteDoc } from 'firebase/firestore';
 import { auth, authPersistenceReady, db } from './config/firebase';
 import { BlackMarketApp } from './components/apps/BlackMarketApp';
 import { BlockchainApp } from './components/apps/BlockchainApp';
@@ -64,6 +64,7 @@ import { SeasonState, applyTheme, buyCosmetic, createMentorTicket, defaultSeason
 import { AdminState, appendAudit, createShopItemTemplate, defaultAdminState, grantCommandWithTrait, upsertPlayerFlag } from './game/admin';
 import { DisplaySettings, clampUiScale, defaultDisplaySettings } from './game/settings';
 import { canPerformAdminAction, nextQueueIntent } from './app/sessionPolicy';
+import { canWriteForHydratedUser, shouldApplySnapshotForActiveUser, shouldResetForUidChange } from './app/authIsolation';
 
 type AppPhase = 'boot' | 'login' | 'desktop';
 type AppId = 'terminal' | 'market' | 'index' | 'profile' | 'casino' | 'pvp' | 'blockchain' | 'growth' | 'season' | 'admin' | 'settings';
@@ -100,6 +101,7 @@ type PersistedDesktop = {
 
 
 type CloudPlayerCard = {
+  uid: string;
   schemaVersion: number;
   profile: {
     email: string;
@@ -134,13 +136,9 @@ type CloudPlayerCard = {
   };
 };
 
-const STORAGE_KEY = 'aionous.desktop.v5';
+const DESKTOP_SCHEMA_VERSION = 2;
 const BOOT_MS = 2600;
 const MAX_LOGS = 100;
-
-function getStorageKey(uid: string): string {
-  return `${STORAGE_KEY}.user.${uid}`;
-}
 
 function createDefaultDesktopState(): PersistedDesktop {
   return {
@@ -272,6 +270,8 @@ export function App() {
   const dragRef = useRef<{ id: AppId; offsetX: number; offsetY: number } | null>(null);
   const cloudApplyRef = useRef(false);
   const prevAuthUidRef = useRef<string | null>(null);
+  const writeTimerRef = useRef<number | null>(null);
+  const activeHydrationUidRef = useRef<string | null>(null);
 
   function resetStateToDefaults() {
     const defaults = createDefaultDesktopState();
@@ -291,21 +291,30 @@ export function App() {
     setLogs(defaults.logs);
   }
 
-  function applyDesktopState(next: PersistedDesktop) {
+  function replaceDesktopState(next: PersistedDesktop) {
     setWindows(Array.isArray(next.windows) ? next.windows : seedWindows());
-    setPlayer((prev) => ({ ...prev, ...next.player }));
-    setCooldowns((prev) => ({ ...prev, ...next.cooldowns }));
-    setProgression((prev) => ({ ...prev, ...next.progression }));
+    setPlayer(next.player);
+    setCooldowns(next.cooldowns);
+    setProgression(next.progression);
     setShopInventory(Array.isArray(next.shopInventory) ? next.shopInventory : defaultShopInventory);
-    setRetention((prev) => ({ ...prev, ...next.retention }));
-    setCasino((prev) => ({ ...prev, ...next.casino }));
-    setRanked((prev) => ({ ...prev, ...next.ranked }));
-    setBlockchain((prev) => ({ ...prev, ...next.blockchain }));
-    setGrowth((prev) => ({ ...prev, ...next.growth }));
-    setSeason((prev) => ({ ...prev, ...next.season }));
-    setAdmin((prev) => ({ ...prev, ...next.admin }));
-    setDisplaySettings((prev) => ({ ...prev, ...next.displaySettings }));
+    setRetention(next.retention);
+    setCasino(next.casino);
+    setRanked(next.ranked);
+    setBlockchain(next.blockchain);
+    setGrowth(next.growth);
+    setSeason(next.season);
+    setAdmin(next.admin);
+    setDisplaySettings(next.displaySettings);
     setLogs(Array.isArray(next.logs) ? next.logs.slice(-MAX_LOGS) : []);
+  }
+
+  function clearSessionGuards() {
+    cloudApplyRef.current = false;
+    activeHydrationUidRef.current = null;
+    if (writeTimerRef.current !== null) {
+      window.clearTimeout(writeTimerRef.current);
+      writeTimerRef.current = null;
+    }
   }
 
   useEffect(() => {
@@ -328,10 +337,12 @@ export function App() {
           void deleteDoc(doc(db, 'pvpQueue', prevUid));
         }
 
-        if (nextUid !== prevUid) {
+        if (shouldResetForUidChange(prevUid, nextUid)) {
+          clearSessionGuards();
           setHydratedUid(null);
           setInPvpQueue(false);
           setActiveMatch(null);
+          setPvpQueue([]);
           setSessionReady(false);
           resetStateToDefaults();
         }
@@ -341,64 +352,11 @@ export function App() {
         setUser(nextUser);
         setAuthReady(true);
 
-        setPhase(nextUser ? 'desktop' : 'login');
+        setPhase(nextUser ? 'boot' : 'login');
       });
     });
     return () => unsub();
   }, []);
-
-  useEffect(() => {
-    if (!authReady || !user || hydratedUid === user.uid || sessionReady) return;
-
-    let cancelled = false;
-
-    const hydrateSession = async () => {
-      const activeUid = user.uid;
-      const playerRef = doc(db, 'players', activeUid);
-      const storageKey = getStorageKey(activeUid);
-      const fallback = createDefaultDesktopState();
-      let hydratedState: PersistedDesktop = fallback;
-
-      try {
-        const snapshot = await getDoc(playerRef);
-        if (snapshot.exists()) {
-          const data = snapshot.data() as Partial<CloudPlayerCard>;
-          setCloudAdmin(Boolean(data.roles?.admin));
-          if (isPersistedDesktop(data.desktopState)) {
-            hydratedState = data.desktopState;
-          }
-        }
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : 'Unknown Firestore error';
-        setCloudSyncError(reason);
-      }
-
-      if (hydratedState === fallback) {
-        const raw = localStorage.getItem(storageKey);
-        if (raw) {
-          try {
-            const parsed = JSON.parse(raw) as unknown;
-            if (isPersistedDesktop(parsed)) {
-              hydratedState = parsed;
-            }
-          } catch {
-            hydratedState = fallback;
-          }
-        }
-      }
-
-      if (cancelled || activeUid !== auth.currentUser?.uid) return;
-
-      applyDesktopState(hydratedState);
-      setHydratedUid(activeUid);
-      setSessionReady(true);
-    };
-
-    void hydrateSession();
-    return () => {
-      cancelled = true;
-    };
-  }, [authReady, user, hydratedUid, sessionReady]);
 
   useEffect(() => {
     if (!user) {
@@ -410,15 +368,27 @@ export function App() {
     }
 
     const activeUid = user.uid;
+    activeHydrationUidRef.current = activeUid;
     const playerRef = doc(db, 'players', activeUid);
+
+    const resolveDesktop = (data: Partial<CloudPlayerCard> | undefined): PersistedDesktop => {
+      if (data?.schemaVersion !== DESKTOP_SCHEMA_VERSION || !isPersistedDesktop(data.desktopState)) {
+        return createDefaultDesktopState();
+      }
+      return data.desktopState;
+    };
+
     const unsub = onSnapshot(
       playerRef,
       async (snapshot) => {
         try {
+          if (!shouldApplySnapshotForActiveUser({ snapshotUid: activeUid, activeHydrationUid: activeHydrationUidRef.current, authUid: auth.currentUser?.uid ?? null })) return;
+
           if (!snapshot.exists()) {
             const defaults = createDefaultDesktopState();
-            const bootstrap: Partial<CloudPlayerCard & { meta: CloudPlayerCard['meta'] & { createdAt: unknown } }> = {
-              schemaVersion: 1,
+            const bootstrap: CloudPlayerCard & { uid: string; meta: CloudPlayerCard['meta'] & { createdAt: unknown } } = {
+              uid: activeUid,
+              schemaVersion: DESKTOP_SCHEMA_VERSION,
               profile: {
                 email: user.email ?? '',
                 alias: user.email ?? 'Operator',
@@ -450,38 +420,41 @@ export function App() {
               }
             };
 
-            await setDoc(playerRef, bootstrap, { merge: true });
+            await setDoc(playerRef, bootstrap);
             setCloudSyncError('');
           }
 
           const data = snapshot.data() as Partial<CloudPlayerCard>;
-          if (activeUid !== auth.currentUser?.uid) {
+          if (!shouldApplySnapshotForActiveUser({ snapshotUid: activeUid, activeHydrationUid: activeHydrationUidRef.current, authUid: auth.currentUser?.uid ?? null })) {
             return;
           }
 
           setCloudAdmin(Boolean(data.roles?.admin));
 
           // Cloud snapshot has precedence and will overwrite any local hydration once available.
-          const remote = isPersistedDesktop(data.desktopState) ? data.desktopState : createDefaultDesktopState();
+          const remote = resolveDesktop(data);
           cloudApplyRef.current = true;
-          applyDesktopState(remote);
+          replaceDesktopState(remote);
           window.setTimeout(() => {
             cloudApplyRef.current = false;
           }, 0);
 
           setSessionReady(true);
           setHydratedUid(activeUid);
+          setPhase('desktop');
           setCloudSyncError('');
         } catch (error) {
           const reason = error instanceof Error ? error.message : 'Unknown Firestore error';
           setCloudSyncError(reason);
           setSessionReady(true);
+          setPhase('desktop');
           // Keep auth and cloud sync concerns decoupled: sync failures are non-blocking warnings.
         }
       },
       (error) => {
         setCloudSyncError(error.message);
         setSessionReady(true);
+        setPhase('desktop');
         // Keep auth and cloud sync concerns decoupled: sync failures are non-blocking warnings.
       }
     );
@@ -491,11 +464,13 @@ export function App() {
 
   useEffect(() => {
     if (!user || !sessionReady || cloudApplyRef.current || hydratedUid !== user.uid) return;
-
-    const timer = window.setTimeout(() => {
+    writeTimerRef.current = window.setTimeout(() => {
+      const authUid = auth.currentUser?.uid ?? null;
+      if (!canWriteForHydratedUser({ authUid, hydratedUid, payloadUid: user.uid })) return;
       const playerRef = doc(db, 'players', user.uid);
-      const payload: Partial<CloudPlayerCard> = {
-        schemaVersion: 1,
+      const payload: Partial<CloudPlayerCard> & { uid: string } = {
+        uid: user.uid,
+        schemaVersion: DESKTOP_SCHEMA_VERSION,
         profile: {
           email: user.email ?? '',
           alias: user.email ?? 'Operator',
@@ -552,7 +527,12 @@ export function App() {
         });
     }, 500);
 
-    return () => window.clearTimeout(timer);
+    return () => {
+      if (writeTimerRef.current !== null) {
+        window.clearTimeout(writeTimerRef.current);
+        writeTimerRef.current = null;
+      }
+    };
   }, [
     user,
     sessionReady,
@@ -575,51 +555,11 @@ export function App() {
   ]);
 
   useEffect(() => {
-    if (!user || hydratedUid !== user.uid) return;
-    const storageKey = getStorageKey(user.uid);
-    localStorage.setItem(
-      storageKey,
-      JSON.stringify({
-        windows,
-        player,
-        cooldowns,
-        progression,
-        shopInventory,
-        retention,
-        casino,
-        ranked,
-        blockchain,
-        growth,
-        season,
-        admin,
-        displaySettings,
-        logs: logs.slice(-MAX_LOGS)
-      } satisfies PersistedDesktop)
-    );
-  }, [
-    user,
-    hydratedUid,
-    windows,
-    player,
-    cooldowns,
-    progression,
-    shopInventory,
-    retention,
-    casino,
-    ranked,
-    blockchain,
-    growth,
-    season,
-    admin,
-    displaySettings,
-    logs
-  ]);
-
-  useEffect(() => {
-    localStorage.removeItem('aionous.desktop.v4');
-    localStorage.removeItem('aionous.desktop.v5.guest');
-    localStorage.removeItem('aionous.desktop.v5.signed-default');
-    localStorage.removeItem('aionous.desktop.v5.signed-out');
+    const legacyKeys = ['aionous.desktop.v4', 'aionous.desktop.v5.guest', 'aionous.desktop.v5.signed-default', 'aionous.desktop.v5.signed-out'];
+    legacyKeys.forEach((key) => localStorage.removeItem(key));
+    Object.keys(localStorage)
+      .filter((key) => key.startsWith('aionous.desktop.v5'))
+      .forEach((key) => localStorage.removeItem(key));
   }, []);
 
   useEffect(() => {
@@ -1108,7 +1048,9 @@ export function App() {
       await deleteDoc(doc(db, 'pvpQueue', user.uid));
     }
     await signOut(auth);
+    clearSessionGuards();
     setHydratedUid(null);
+    setSessionReady(false);
     resetStateToDefaults();
     setPhase('login');
   }
@@ -1133,7 +1075,7 @@ export function App() {
         <section className="login-card phase4">
           <p className="kicker">ACCESS TERMINAL</p>
           <h1>Neural Link Login</h1>
-          <p className="muted">Authenticate with Firebase to access your account-specific cloud progression.</p>
+          <p className="muted">Authenticate with Firebase to access your account-specific cloud progression. Session persistence is tab-session scoped: closing the browser signs you out.</p>
 
           <form onSubmit={onSubmitAuth} className="auth-form">
             <label>
