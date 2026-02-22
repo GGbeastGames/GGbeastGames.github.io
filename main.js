@@ -15,6 +15,8 @@ const REQUIRED_DOM_IDS = [
   "login-form",
   "auth-mode-label",
   "auth-mode-toggle",
+  "auth-runtime-status",
+  "auth-retry",
   "neural-id",
   "decrypt-key",
   "login-error",
@@ -36,6 +38,7 @@ const windowState = {
 };
 
 let authBridge = null;
+let authBridgeInitPromise = null;
 let dataBridge = null;
 let currentUser = null;
 const terminalEngine = createTerminalEngine();
@@ -1439,36 +1442,61 @@ function initTaskbarAndWindows() {
   }
 }
 
-function initAuthBridge() {
+function initAuthBridge({ force = false, onRuntimeStatus = null } = {}) {
   const bootStatus = getEl("boot-status");
+
+  if (authBridgeInitPromise && !force) {
+    if (typeof onRuntimeStatus === 'function') {
+      if (authBridge?.mode === 'online') onRuntimeStatus('Auth bridge: online');
+      else if (authBridge?.mode === 'offline') onRuntimeStatus(`Auth bridge: offline (${authBridge.reason || 'unknown'})`);
+      else onRuntimeStatus('Auth bridge: loading…');
+      authBridgeInitPromise.then((bridge) => {
+        if (bridge?.mode === 'online') onRuntimeStatus('Auth bridge: online');
+        else onRuntimeStatus(`Auth bridge: offline (${bridge?.reason || 'unknown'})`);
+      });
+    }
+    return authBridgeInitPromise;
+  }
 
   authBridge = {
     mode: 'loading',
+    reason: 'bridge initializing',
     authenticate: async () => ({ ok: false, message: 'Auth service still initializing...' }),
     register: async () => ({ ok: false, message: 'Auth service still initializing...' }),
   };
+  if (typeof onRuntimeStatus === 'function') onRuntimeStatus('Auth bridge: loading…');
 
-  initFirebaseAuthBridge({
+  authBridgeInitPromise = initFirebaseAuthBridge({
     onStatus(status) {
       if (bootStatus && !windowState.desktopInitialized) {
         bootStatus.textContent = status === 'online' ? 'AUTH ONLINE' : status === 'offline' ? 'AUTH OFFLINE' : 'AUTH LOADING';
       }
+      if (typeof onRuntimeStatus === 'function') onRuntimeStatus(`Auth bridge: ${status}`);
     },
   })
     .then((bridge) => {
       authBridge = bridge;
       logDiagnostic('log', 'firebase auth bridge initialized', { mode: bridge.mode, reason: bridge.reason || '' });
+      if (typeof onRuntimeStatus === 'function') {
+        onRuntimeStatus(bridge.mode === 'online' ? 'Auth bridge: online' : `Auth bridge: offline (${bridge.reason || 'unknown'})`);
+      }
       applyRoleAccessToUi();
+      return bridge;
     })
     .catch((error) => {
       logDiagnostic('warn', 'firebase auth bridge promise rejected unexpectedly', { error: String(error) });
       authBridge = {
         mode: 'offline',
+        reason: String(error),
         authenticate: async () => ({ ok: false, message: 'Authentication unavailable. Check network/CSP and Firebase Auth provider settings.' }),
         register: async () => ({ ok: false, message: 'Signup unavailable. Check network/CSP, Firebase provider setup, and authorized domains.' }),
       };
+      if (typeof onRuntimeStatus === 'function') onRuntimeStatus(`Auth bridge: offline (${String(error)})`);
       if (bootStatus && !windowState.desktopInitialized) bootStatus.textContent = 'AUTH OFFLINE';
+      return authBridge;
     });
+
+  return authBridgeInitPromise;
 }
 
 function showDesktopAfterLogin() {
@@ -1505,11 +1533,13 @@ function initLoginFlow() {
   const loginForm = getEl("login-form");
   const authModeLabel = getEl("auth-mode-label");
   const authModeToggle = getEl("auth-mode-toggle");
+  const authRuntimeStatus = getEl("auth-runtime-status");
+  const authRetry = getEl("auth-retry");
   const loginError = getEl("login-error");
   const neuralId = getEl("neural-id");
   const decryptKey = getEl("decrypt-key");
 
-  if (!introScreen || !skipIntro || !introStream || !loginScreen || !loginForm || !authModeLabel || !authModeToggle || !loginError || !neuralId || !decryptKey) {
+  if (!introScreen || !skipIntro || !introStream || !loginScreen || !loginForm || !authModeLabel || !authModeToggle || !authRuntimeStatus || !authRetry || !loginError || !neuralId || !decryptKey) {
     failBoot("intro/login flow failed to initialize due to missing nodes");
     return;
   }
@@ -1523,6 +1553,18 @@ function initLoginFlow() {
     if (submit) submit.textContent = signingIn ? "Authenticate" : "Create account";
   };
   updateAuthModeUi();
+
+  const setAuthRuntimeStatus = (text) => {
+    authRuntimeStatus.textContent = text;
+  };
+
+  setAuthRuntimeStatus('Auth bridge: loading…');
+  initAuthBridge({ onRuntimeStatus: setAuthRuntimeStatus });
+
+  authRetry.addEventListener('click', async () => {
+    setAuthRuntimeStatus('Auth bridge: retrying…');
+    await initAuthBridge({ force: true, onRuntimeStatus: setAuthRuntimeStatus });
+  });
 
   const introLines = [
     "Handshake established with relay-04…",
@@ -1578,7 +1620,13 @@ function initLoginFlow() {
         return;
       }
 
-      const action = authMode === "signup" ? bridge.register : bridge.authenticate;
+      let bridgeReady = bridge;
+      if (bridgeReady.mode !== 'online') {
+        setAuthRuntimeStatus('Auth bridge: re-initializing before submit…');
+        bridgeReady = await initAuthBridge({ force: true, onRuntimeStatus: setAuthRuntimeStatus });
+      }
+
+      const action = authMode === "signup" ? bridgeReady.register : bridgeReady.authenticate;
       if (typeof action !== "function") {
         loginError.textContent = "Authentication mode unavailable right now. Please retry.";
         return;

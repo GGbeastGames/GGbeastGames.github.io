@@ -46,6 +46,8 @@
             <button id="login-submit" type="submit">Authenticate</button>
             <button id="auth-mode-toggle" type="button" class="login-toggle">Need an account? Create one</button>
             <p class="login-note">Firebase email/password auth only in this phase. Use Sign up to create your account first.</p>
+            <p id="auth-runtime-status" class="auth-runtime-status" aria-live="polite">Auth bridge: loading…</p>
+            <button id="auth-retry" type="button" class="login-retry">Retry auth connection</button>
             <p id="login-error" class="login-error" role="alert" aria-live="polite"></p>
           </form>
         </section>

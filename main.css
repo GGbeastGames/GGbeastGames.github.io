@@ -157,6 +157,29 @@ body {
   color: var(--accent-primary);
 }
 
+
+.auth-runtime-status {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  min-height: 1.1rem;
+}
+
+.login-retry {
+  justify-self: start;
+  border: 1px solid rgba(16, 234, 176, 0.35);
+  border-radius: 8px;
+  background: rgba(11, 49, 57, 0.58);
+  color: var(--text-primary);
+  padding: 0.35rem 0.7rem;
+  cursor: pointer;
+}
+
+.login-retry:hover {
+  border-color: var(--accent-primary);
+  background: var(--state-hover);
+}
+
 .login-error {
   margin: 0;
   color: #ffd4e2;

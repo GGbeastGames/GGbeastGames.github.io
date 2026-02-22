@@ -11,6 +11,10 @@ const FIREBASE_CONFIG = {
 
 const FIREBASE_SDK_TIMEOUT_MS = 20000;
 const FIREBASE_SDK_LOAD_RETRIES = 2;
+const FIREBASE_SDK_SOURCES = [
+  'https://www.gstatic.com/firebasejs/10.13.1',
+  'https://cdn.jsdelivr.net/npm/firebase@10.13.1',
+];
 
 function withTimeout(promise, ms, timeoutMessage) {
   return Promise.race([
@@ -21,31 +25,34 @@ function withTimeout(promise, ms, timeoutMessage) {
   ]);
 }
 
-async function getFirebaseApp() {
-  const { initializeApp, getApps } = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js');
-  return getApps().length ? getApps()[0] : initializeApp(FIREBASE_CONFIG);
-}
-
 async function loadFirebaseModule(moduleName) {
   let lastError = null;
 
-  for (let attempt = 1; attempt <= FIREBASE_SDK_LOAD_RETRIES; attempt += 1) {
-    try {
-      const result = await withTimeout(
-        import(`https://www.gstatic.com/firebasejs/10.13.1/${moduleName}.js`),
-        FIREBASE_SDK_TIMEOUT_MS,
-        `${moduleName} load timeout (${attempt}/${FIREBASE_SDK_LOAD_RETRIES})`
-      );
-      return result;
-    } catch (error) {
-      lastError = error;
-      if (attempt < FIREBASE_SDK_LOAD_RETRIES) {
-        await new Promise((resolve) => setTimeout(resolve, 600 * attempt));
+  for (const source of FIREBASE_SDK_SOURCES) {
+    for (let attempt = 1; attempt <= FIREBASE_SDK_LOAD_RETRIES; attempt += 1) {
+      try {
+        const result = await withTimeout(
+          import(`${source}/${moduleName}.js?attempt=${attempt}`),
+          FIREBASE_SDK_TIMEOUT_MS,
+          `${moduleName} load timeout (${attempt}/${FIREBASE_SDK_LOAD_RETRIES})`
+        );
+        return result;
+      } catch (error) {
+        lastError = error;
+        if (attempt < FIREBASE_SDK_LOAD_RETRIES) {
+          await new Promise((resolve) => setTimeout(resolve, 600 * attempt));
+        }
       }
     }
   }
 
   throw lastError || new Error(`${moduleName} failed to load`);
+}
+
+async function getFirebaseApp() {
+  const appMod = await loadFirebaseModule('firebase-app');
+  const { initializeApp, getApps } = appMod;
+  return getApps().length ? getApps()[0] : initializeApp(FIREBASE_CONFIG);
 }
 
 export async function initFirebaseAuthBridge({ onStatus = () => {} } = {}) {
