@@ -1,0 +1,115 @@
+.desktop-shell {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  color: #d8e4ff;
+  font-family: 'Inter', system-ui, sans-serif;
+  transform: scale(var(--ui-scale, 1));
+  transform-origin: top left;
+  width: calc(100% / var(--ui-scale, 1));
+  height: calc(100% / var(--ui-scale, 1));
+}
+
+.desktop-shell__wallpaper {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at top, rgba(58, 0, 89, 0.6), rgba(3, 10, 24, 0.95)), var(--skin-wallpaper);
+  background-size: cover;
+  filter: saturate(1.2);
+}
+
+.desktop-shell__workspace {
+  position: absolute;
+  inset: 0 0 56px;
+}
+
+.desktop-window {
+  position: absolute;
+  min-width: 300px;
+  min-height: 220px;
+  border: 1px solid #4ee1ff;
+  box-shadow: 0 0 24px rgba(60, 227, 255, 0.3);
+  background: rgba(9, 16, 38, 0.85);
+  backdrop-filter: blur(4px);
+}
+
+.desktop-window__bar {
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.4rem 0.6rem;
+  background: linear-gradient(90deg, rgba(0, 219, 222, 0.25), rgba(252, 0, 255, 0.2));
+}
+
+.desktop-window__bar button,
+.taskbar button {
+  border: 1px solid rgba(78, 225, 255, 0.5);
+  background-image: var(--skin-button-normal);
+  background-size: cover;
+  background-color: rgba(10, 17, 40, 0.95);
+  color: #d8f7ff;
+}
+
+.desktop-window__content {
+  padding: 1rem;
+}
+
+.taskbar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 56px;
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.6rem;
+  background-image: var(--skin-panel);
+  background-size: cover;
+  background-color: rgba(8, 9, 22, 0.95);
+}
+
+.intro-cutscene {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: #01040d;
+  color: #4fff8f;
+  transition: opacity 0.8s ease;
+}
+
+.intro-cutscene.fade-out {
+  opacity: 0;
+}
+
+.intro-cutscene__rain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.45;
+}
+
+.intro-cutscene__rain p {
+  margin: 0;
+  white-space: nowrap;
+  font-family: monospace;
+  font-size: clamp(10px, 1.8vw, 18px);
+  animation: rain 3s linear infinite;
+}
+
+.intro-cutscene__title {
+  position: relative;
+  font-size: clamp(26px, 6vw, 70px);
+  letter-spacing: 0.4rem;
+  text-shadow: 0 0 16px #50ff90;
+}
+
+.mobile .desktop-window {
+  min-width: 260px;
+}
+
+@keyframes rain {
+  from { transform: translateY(-12px); }
+  to { transform: translateY(16px); }
+}

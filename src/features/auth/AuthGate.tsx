@@ -1,5 +1,7 @@
 import { FormEvent, useMemo, useState } from 'react';
 
+import { DesktopShell } from '../desktop/DesktopShell';
+import '../desktop/desktop-shell.css';
 import { AuthService } from '../../services/auth/AuthService';
 
 interface AuthGateProps {
@@ -29,7 +31,7 @@ export const AuthGate = ({ authService }: AuthGateProps) => {
     }
   };
 
-  return (
+  const loginPanel = (
     <section>
       <h1>{submitLabel}</h1>
       <form onSubmit={onSubmit}>
@@ -55,4 +57,6 @@ export const AuthGate = ({ authService }: AuthGateProps) => {
       {error ? <p role="alert">{error}</p> : null}
     </section>
   );
+
+  return <DesktopShell loginWindow={loginPanel} />;
 };
