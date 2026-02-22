@@ -170,3 +170,26 @@
 .market-app__item button {
   margin-right: 0.4rem;
 }
+
+.casino-app {
+  display: grid;
+  gap: 0.6rem;
+  max-height: 100%;
+  overflow: auto;
+  color: #c6ffff;
+}
+
+.casino-app__games {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.5rem;
+}
+
+.casino-app__game,
+.casino-app__telemetry,
+.casino-app__charm {
+  border: 1px solid rgba(0, 255, 240, 0.45);
+  background: linear-gradient(145deg, rgba(5, 16, 34, 0.9), rgba(28, 6, 40, 0.8));
+  box-shadow: 0 0 14px rgba(255, 0, 221, 0.22);
+  padding: 0.5rem;
+}

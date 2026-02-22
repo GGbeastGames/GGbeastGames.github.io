@@ -1,25 +1,76 @@
 import { COMMAND_CATALOG, SHOP_ITEMS, TRAIT_ROLL_CHANCE, TRAIT_SUFFIX, TraitId } from './commandCatalog';
 
+export interface CasinoTelemetryEntry {
+  id: string;
+  gameId: string;
+  bet: number;
+  adjustedWinChancePct: number;
+  payoutMultiplier: number;
+  success: boolean;
+  walletDelta: number;
+  rolledValue: string;
+  timestampMs: number;
+}
+
+export interface ActiveCharmState {
+  sku: string;
+  title: string;
+  winBoostPct: number;
+  usesRemaining: number;
+}
+
+export interface CasinoProfile {
+  wins: number;
+  losses: number;
+  winStreak: number;
+  bestWinStreak: number;
+  totalBets: number;
+  sessionLoss: number;
+  consecutiveBets: number;
+  lastBetAt: number;
+  activeCharm: ActiveCharmState | null;
+  telemetry: CasinoTelemetryEntry[];
+}
+
 export interface PlayerProgress {
   wallet: number;
+  flux: number;
   xp: number;
   ownedCommands: string[];
   commandTraits: Record<string, TraitId[]>;
   completedLessons: string[];
   entitlements: string[];
   cooldowns: Record<string, number>;
+  badges: string[];
+  casino: CasinoProfile;
 }
 
-const STORAGE_KEY = 'aionous-progress-v2';
+const STORAGE_KEY = 'aionous-progress-v3';
+
+const baselineCasino: CasinoProfile = {
+  wins: 0,
+  losses: 0,
+  winStreak: 0,
+  bestWinStreak: 0,
+  totalBets: 0,
+  sessionLoss: 0,
+  consecutiveBets: 0,
+  lastBetAt: 0,
+  activeCharm: null,
+  telemetry: [],
+};
 
 const baseline: PlayerProgress = {
   wallet: 220,
+  flux: 0,
   xp: 0,
   ownedCommands: ['phish'],
   commandTraits: {},
   completedLessons: [],
   entitlements: [],
   cooldowns: {},
+  badges: [],
+  casino: baselineCasino,
 };
 
 export const loadProgress = (): PlayerProgress => {
@@ -37,11 +88,18 @@ export const loadProgress = (): PlayerProgress => {
     return {
       ...baseline,
       ...parsed,
+      flux: parsed.flux ?? baseline.flux,
       ownedCommands: parsed.ownedCommands ?? baseline.ownedCommands,
       commandTraits: parsed.commandTraits ?? baseline.commandTraits,
       completedLessons: parsed.completedLessons ?? baseline.completedLessons,
       entitlements: parsed.entitlements ?? baseline.entitlements,
       cooldowns: parsed.cooldowns ?? baseline.cooldowns,
+      badges: parsed.badges ?? baseline.badges,
+      casino: {
+        ...baselineCasino,
+        ...(parsed.casino ?? {}),
+        telemetry: parsed.casino?.telemetry ?? baselineCasino.telemetry,
+      },
     };
   } catch {
     return baseline;
