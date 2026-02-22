@@ -1361,8 +1361,8 @@ function renderWindowContent(id: AppId, ctx: RenderContext) {
           blockchain={ctx.blockchain}
           balance={ctx.player.nops}
           onBuy={ctx.onBuyShares}
-          onSell={ctx.onSellShares}
           onUpgradeSecurity={ctx.onUpgradeBlockSecurity}
+          onSell={ctx.onSellShares}
         />
       );
     case 'growth':
