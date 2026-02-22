@@ -1,9 +1,35 @@
-import { onCall, HttpsError } from 'firebase-functions/v2/https';
+import { onCall, HttpsError, CallableRequest } from 'firebase-functions/v2/https';
 import { initializeApp } from 'firebase-admin/app';
-import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue, Timestamp, Transaction } from 'firebase-admin/firestore';
 
 initializeApp();
 const db = getFirestore();
+
+interface CommandDefinition {
+  id: string;
+  aliases: string[];
+  cooldownMs: number;
+  successChance: number;
+  rewardRange: { min: number; max: number };
+  penaltyRange: { min: number; max: number };
+  xpRange: { min: number; max: number };
+}
+
+const COMMANDS: Record<string, CommandDefinition> = {
+  phish: {
+    id: 'phish',
+    aliases: ['ph'],
+    cooldownMs: 12_000,
+    successChance: 0.56,
+    rewardRange: { min: 22, max: 85 },
+    penaltyRange: { min: 8, max: 34 },
+    xpRange: { min: 8, max: 21 },
+  },
+};
+
+const MAX_LEVEL = 500;
+const XP_PER_LEVEL = 100;
+const REQUEST_SPAM_WINDOW_MS = 1_500;
 
 function assertAuthed(auth: { uid: string } | null | undefined): asserts auth is { uid: string } {
   if (!auth) {
@@ -18,7 +44,140 @@ function assertAdmin(auth: unknown): void {
   }
 }
 
-export const applyEarnings = onCall(async (request) => {
+function randomInRange(min: number, max: number): number {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function resolveCommand(input: string): CommandDefinition | null {
+  const normalized = input.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  const direct = COMMANDS[normalized];
+  if (direct) {
+    return direct;
+  }
+
+  return Object.values(COMMANDS).find((command) => command.aliases.includes(normalized)) ?? null;
+}
+
+function computeLevel(xp: number): number {
+  const raw = Math.floor(Math.max(0, xp) / XP_PER_LEVEL) + 1;
+  return Math.min(MAX_LEVEL, raw);
+}
+
+export const executeCommand = onCall(async (request: CallableRequest<Record<string, unknown>>) => {
+  assertAuthed(request.auth);
+
+  const commandInput = String(request.data?.command ?? '');
+  const actorUid = request.auth.uid;
+  const command = resolveCommand(commandInput);
+
+  if (!command) {
+    throw new HttpsError('invalid-argument', 'Unsupported command.');
+  }
+
+  const userRef = db.collection('users').doc(actorUid);
+  const cooldownRef = db.collection('cooldowns').doc(actorUid).collection('commands').doc(command.id);
+  const historyRef = userRef.collection('commandHistory').doc();
+
+  const now = Timestamp.now();
+  const nowMillis = now.toMillis();
+  const didSucceed = Math.random() <= command.successChance;
+  const walletDelta = didSucceed
+    ? randomInRange(command.rewardRange.min, command.rewardRange.max)
+    : -randomInRange(command.penaltyRange.min, command.penaltyRange.max);
+  const xpDelta = randomInRange(command.xpRange.min, command.xpRange.max);
+
+  const result = await db.runTransaction(async (tx: Transaction) => {
+    const [userSnap, cooldownSnap] = await Promise.all([tx.get(userRef), tx.get(cooldownRef)]);
+    if (!userSnap.exists) {
+      throw new HttpsError('not-found', 'User profile not found.');
+    }
+
+    const currentWallet = Number(userSnap.get('wallet') ?? 0);
+    const currentBank = Number(userSnap.get('bank') ?? 0);
+    const currentXp = Number(userSnap.get('progression.xp') ?? userSnap.get('xp') ?? 0);
+
+    const lastCommandAtRaw = userSnap.get('progression.lastCommandAt');
+    const lastCommandAtMillis = lastCommandAtRaw instanceof Timestamp ? lastCommandAtRaw.toMillis() : 0;
+
+    if (lastCommandAtMillis > 0 && nowMillis - lastCommandAtMillis < REQUEST_SPAM_WINDOW_MS) {
+      throw new HttpsError('resource-exhausted', 'Command spam detected. Slow down.');
+    }
+
+    const nextAllowedAtRaw = cooldownSnap.get('nextAllowedAt');
+    if (nextAllowedAtRaw instanceof Timestamp && nextAllowedAtRaw.toMillis() > nowMillis) {
+      const remainingMs = nextAllowedAtRaw.toMillis() - nowMillis;
+      throw new HttpsError('failed-precondition', `Cooldown active. Retry in ${Math.ceil(remainingMs / 1000)}s.`);
+    }
+
+    const nextWallet = Math.max(0, currentWallet + walletDelta);
+    const netWorth = currentBank + nextWallet;
+    const nextXp = currentXp + xpDelta;
+    const nextLevel = computeLevel(nextXp);
+    const nextAllowedAt = Timestamp.fromMillis(nowMillis + command.cooldownMs);
+
+    tx.update(userRef, {
+      wallet: nextWallet,
+      netWorth,
+      xp: nextXp,
+      progression: {
+        xp: nextXp,
+        level: nextLevel,
+        maxLevel: MAX_LEVEL,
+        lastCommandAt: now,
+      },
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    tx.set(cooldownRef, {
+      uid: actorUid,
+      commandId: command.id,
+      lastUsedAt: now,
+      nextAllowedAt,
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    tx.create(historyRef, {
+      commandId: command.id,
+      input: commandInput,
+      success: didSucceed,
+      walletDelta,
+      xpDelta,
+      walletAfter: nextWallet,
+      xpAfter: nextXp,
+      levelAfter: nextLevel,
+      createdAt: now,
+      source: 'executeCommand',
+    });
+
+    tx.create(userRef.collection('ledger').doc(), {
+      type: didSucceed ? 'command-reward' : 'command-penalty',
+      commandId: command.id,
+      amount: walletDelta,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+
+    return {
+      ok: true,
+      commandId: command.id,
+      success: didSucceed,
+      walletDelta,
+      walletAfter: nextWallet,
+      xpDelta,
+      xpAfter: nextXp,
+      levelAfter: nextLevel,
+      cooldownUntilMs: nextAllowedAt.toMillis(),
+      message: didSucceed ? 'Phishing run succeeded.' : 'Phishing run failed. Trace detected.',
+    };
+  });
+
+  return result;
+});
+
+export const applyEarnings = onCall(async (request: CallableRequest<Record<string, unknown>>) => {
   assertAuthed(request.auth);
 
   const amount = Number(request.data?.amount);
@@ -28,7 +187,7 @@ export const applyEarnings = onCall(async (request) => {
 
   const userRef = db.collection('users').doc(request.auth.uid);
 
-  await db.runTransaction(async (tx) => {
+  await db.runTransaction(async (tx: Transaction) => {
     const snap = await tx.get(userRef);
     if (!snap.exists) {
       throw new HttpsError('not-found', 'User profile not found.');
@@ -52,7 +211,7 @@ export const applyEarnings = onCall(async (request) => {
   return { ok: true };
 });
 
-export const purchaseItem = onCall(async (request) => {
+export const purchaseItem = onCall(async (request: CallableRequest<Record<string, unknown>>) => {
   assertAuthed(request.auth);
 
   const sku = String(request.data?.sku ?? '').trim();
@@ -64,7 +223,7 @@ export const purchaseItem = onCall(async (request) => {
   const userRef = db.collection('users').doc(request.auth.uid);
   const itemRef = db.collection('inventory').doc(request.auth.uid).collection('items').doc(sku);
 
-  await db.runTransaction(async (tx) => {
+  await db.runTransaction(async (tx: Transaction) => {
     const userSnap = await tx.get(userRef);
     if (!userSnap.exists) {
       throw new HttpsError('not-found', 'User profile not found.');
@@ -91,7 +250,7 @@ export const purchaseItem = onCall(async (request) => {
   return { ok: true };
 });
 
-export const grantBadge = onCall(async (request) => {
+export const grantBadge = onCall(async (request: CallableRequest<Record<string, unknown>>) => {
   assertAdmin(request.auth);
 
   const targetUid = String(request.data?.targetUid ?? '').trim();
@@ -117,7 +276,7 @@ export const grantBadge = onCall(async (request) => {
   return { ok: true };
 });
 
-export const banUser = onCall(async (request) => {
+export const banUser = onCall(async (request: CallableRequest<Record<string, unknown>>) => {
   assertAdmin(request.auth);
 
   const targetUid = String(request.data?.targetUid ?? '').trim();
@@ -147,7 +306,7 @@ export const banUser = onCall(async (request) => {
   return { ok: true };
 });
 
-export const publishGlobalEvent = onCall(async (request) => {
+export const publishGlobalEvent = onCall(async (request: CallableRequest<Record<string, unknown>>) => {
   assertAdmin(request.auth);
 
   const eventType = String(request.data?.eventType ?? '').trim();
