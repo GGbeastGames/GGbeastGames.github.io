@@ -1,5 +1,7 @@
 import { AuthGate } from './features/auth/AuthGate';
+import { CompetitiveArena } from './features/pvp/CompetitiveArena';
 import { AuthService } from './services/auth/AuthService';
+import './features/pvp/competitive-arena.css';
 
 const createLocalAuthService = (): AuthService => ({
   async createAccount() {
@@ -21,5 +23,10 @@ const createLocalAuthService = (): AuthService => ({
 });
 
 export const App = () => {
-  return <AuthGate authService={createLocalAuthService()} />;
+  return (
+    <>
+      <CompetitiveArena />
+      <AuthGate authService={createLocalAuthService()} />
+    </>
+  );
 };
