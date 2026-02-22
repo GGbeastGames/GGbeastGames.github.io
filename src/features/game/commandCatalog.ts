@@ -27,6 +27,27 @@ export interface ShopItem {
   removedFromShop?: boolean;
 }
 
+export type CasinoGameId = 'coinflip' | 'highlow' | 'slots';
+
+export interface CasinoGameModule {
+  id: CasinoGameId;
+  title: string;
+  description: string;
+  minBet: number;
+  maxBet: number;
+  payoutMultiplierOnWin: number;
+  houseEdgePct: number;
+}
+
+export interface LuckCharmItem {
+  sku: string;
+  title: string;
+  description: string;
+  fluxCost: number;
+  winBoostPct: number;
+  maxUsesPerPurchase: number;
+}
+
 export const TRAIT_SUFFIX: Record<TraitId, string> = {
   spring: 'TS',
 };
@@ -90,3 +111,58 @@ export const SHOP_ITEMS: ShopItem[] = [
     removedFromShop: true,
   },
 ];
+
+export const CASINO_GAMES: CasinoGameModule[] = [
+  {
+    id: 'coinflip',
+    title: 'Coinflip',
+    description: '50/50 roll tuned to 1.95x payout.',
+    minBet: 5,
+    maxBet: 70,
+    payoutMultiplierOnWin: 1.95,
+    houseEdgePct: 2.5,
+  },
+  {
+    id: 'highlow',
+    title: 'High-Low',
+    description: 'Call high or low on a 1-100 draw.',
+    minBet: 10,
+    maxBet: 100,
+    payoutMultiplierOnWin: 1.9,
+    houseEdgePct: 5,
+  },
+  {
+    id: 'slots',
+    title: 'Neon Slots',
+    description: 'Match 3 symbols for a 4x spike.',
+    minBet: 15,
+    maxBet: 120,
+    payoutMultiplierOnWin: 4,
+    houseEdgePct: 8,
+  },
+];
+
+export const LUCK_CHARM_ITEMS: LuckCharmItem[] = [
+  {
+    sku: 'charm_ion_clover',
+    title: 'Ion Clover',
+    description: '+2.5% win chance for the next 8 bets. Stacks are not allowed.',
+    fluxCost: 6,
+    winBoostPct: 2.5,
+    maxUsesPerPurchase: 8,
+  },
+  {
+    sku: 'charm_pulse_dice',
+    title: 'Pulse Dice',
+    description: '+1.5% win chance for the next 15 bets. Stacks are not allowed.',
+    fluxCost: 9,
+    winBoostPct: 1.5,
+    maxUsesPerPurchase: 15,
+  },
+];
+
+export const CASINO_ANTI_ABUSE = {
+  spinCooldownMs: 1_200,
+  maxLossPerSession: 260,
+  maxConsecutiveBets: 30,
+};
