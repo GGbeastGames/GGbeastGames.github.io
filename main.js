@@ -371,29 +371,61 @@ async function hydratePlayerStateFromCloud() {
     return;
   }
 
-  const loaded = await dataBridge.loadState();
-  if (!loaded.ok || !loaded.state) {
+  const loadedBundle = typeof dataBridge.loadPlayerBundle === 'function' ? await dataBridge.loadPlayerBundle() : null;
+  const state = loadedBundle?.ok ? loadedBundle.bundle?.state : null;
+
+  const fallback = !state ? await dataBridge.loadState() : null;
+  const mergedState = state || (fallback?.ok ? fallback.state : null);
+
+  if (!mergedState) {
     notifyPlayerState();
     return;
   }
 
-  if (Number.isFinite(Number(loaded.state.nops))) {
-    playerState.nops = Math.max(0, Number(loaded.state.nops));
+  if (Number.isFinite(Number(mergedState.nops))) {
+    playerState.nops = Math.max(0, Number(mergedState.nops));
   }
 
-  const cloudCommands = Array.isArray(loaded.state.ownedCommands) ? loaded.state.ownedCommands : [];
+  const cloudCommands = Array.isArray(mergedState.ownedCommands) ? mergedState.ownedCommands : [];
   const valid = cloudCommands.filter((id) => COMMAND_CATALOG.some((command) => command.id === id));
   playerState.ownedCommands = new Set(valid.length ? valid : ["phish"]);
+
+  if (mergedState.marketHoldings && typeof mergedState.marketHoldings === 'object') {
+    Object.keys(marketState.holdings).forEach((symbol) => {
+      marketState.holdings[symbol] = Math.max(0, Number(mergedState.marketHoldings[symbol]) || 0);
+    });
+  }
 
   notifyPlayerState();
 }
 
 async function persistPlayerStateToCloud() {
   if (!dataBridge || dataBridge.mode !== 'online') return;
-  await dataBridge.saveState({
-    nops: playerState.nops,
-    ownedCommands: Array.from(playerState.ownedCommands),
-  });
+
+  const payload = {
+    profile: {
+      email: currentUser?.email || null,
+      handle: currentUser?.email ? currentUser.email.split('@')[0] : null,
+      status: 'active',
+    },
+    state: {
+      nops: playerState.nops,
+      ownedCommands: Array.from(playerState.ownedCommands),
+      marketHoldings: { ...marketState.holdings },
+    },
+    stats: {
+      totalCommandsOwned: playerState.ownedCommands.size,
+      portfolioValue: Number(getPortfolioValue().toFixed(2)),
+      totalEquity: Number(getTotalEquity().toFixed(2)),
+    },
+  };
+
+  if (typeof dataBridge.savePlayerBundle === 'function') {
+    await dataBridge.savePlayerBundle(payload);
+    return;
+  }
+
+  await dataBridge.saveState(payload.state);
 }
 
 function purchaseCommand(commandId) {
@@ -1568,11 +1600,15 @@ function initLoginFlow() {
         },
       });
 
+      if (typeof dataBridge.ensurePlayerRecord === "function") {
+        await dataBridge.ensurePlayerRecord(currentUser);
+      }
       await hydratePlayerStateFromCloud();
       if (typeof dataBridge.ensureRolesDoc === "function") {
         await dataBridge.ensureRolesDoc();
       }
       await loadRoleStateFromCloud();
+      await persistPlayerStateToCloud();
 
       loginError.textContent = "";
       showDesktopAfterLogin();

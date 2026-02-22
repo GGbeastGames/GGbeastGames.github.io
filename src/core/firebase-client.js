@@ -1,12 +1,12 @@
 const FIREBASE_CONFIG = {
-  apiKey: 'AIzaSyDYCVuqgeOapoL-gxIvjW_UG6WSV4GZyqo',
-  authDomain: 'terminal-game-19338.firebaseapp.com',
-  databaseURL: 'https://terminal-game-19338-default-rtdb.firebaseio.com',
-  projectId: 'terminal-game-19338',
-  storageBucket: 'terminal-game-19338.firebasestorage.app',
-  messagingSenderId: '202798356459',
-  appId: '1:202798356459:web:96b9dd3669a10c8c7debae',
-  measurementId: 'G-S3CS8SXKXE',
+  apiKey: 'AIzaSyDOrfbRuZHuGMa8MnVnqVKxheLHQwTVi2o',
+  authDomain: 'rootaccess-1b39e.firebaseapp.com',
+  databaseURL: 'https://rootaccess-1b39e-default-rtdb.firebaseio.com',
+  projectId: 'rootaccess-1b39e',
+  storageBucket: 'rootaccess-1b39e.firebasestorage.app',
+  messagingSenderId: '1089338439121',
+  appId: '1:1089338439121:web:1e26fc0a5e5abb02221cf0',
+  measurementId: 'G-WGQPLVYHJX',
 };
 
 function withTimeout(promise, ms, timeoutMessage) {
@@ -132,14 +132,35 @@ export async function initFirebaseDataBridge({ uid, onStatus = () => {} } = {}) 
     );
 
     const db = firestoreMod.getFirestore(app);
+    const playerRef = firestoreMod.doc(db, 'players', uid);
     const stateRef = firestoreMod.doc(db, 'players', uid, 'meta', 'gameState');
     const roleRef = firestoreMod.doc(db, 'players', uid, 'meta', 'roles');
+    const statsRef = firestoreMod.doc(db, 'players', uid, 'meta', 'stats');
     const auditLogsRef = firestoreMod.collection(db, 'admin', 'auditLogs', 'entries');
 
     onStatus('online');
 
     return {
       mode: 'online',
+      async ensurePlayerRecord(user) {
+        try {
+          await firestoreMod.setDoc(
+            playerRef,
+            {
+              uid,
+              email: user?.email || null,
+              handle: user?.email ? user.email.split('@')[0] : `player_${uid.slice(0, 6)}`,
+              status: 'active',
+              createdAt: Date.now(),
+              lastLoginAt: Date.now(),
+            },
+            { merge: true }
+          );
+          return { ok: true };
+        } catch (error) {
+          return { ok: false, message: `player record init failed: ${String(error)}` };
+        }
+      },
       async loadState() {
         try {
           const snapshot = await firestoreMod.getDoc(stateRef);
@@ -156,6 +177,7 @@ export async function initFirebaseDataBridge({ uid, onStatus = () => {} } = {}) 
             {
               nops: Number(state?.nops || 0),
               ownedCommands: Array.isArray(state?.ownedCommands) ? state.ownedCommands : [],
+              marketHoldings: state?.marketHoldings && typeof state.marketHoldings === 'object' ? state.marketHoldings : {},
               updatedAt: Date.now(),
             },
             { merge: true }
@@ -163,6 +185,67 @@ export async function initFirebaseDataBridge({ uid, onStatus = () => {} } = {}) 
           return { ok: true };
         } catch (error) {
           return { ok: false, message: `save failed: ${String(error)}` };
+        }
+      },
+      async loadPlayerBundle() {
+        try {
+          const [playerSnap, stateSnap, statsSnap] = await Promise.all([
+            firestoreMod.getDoc(playerRef),
+            firestoreMod.getDoc(stateRef),
+            firestoreMod.getDoc(statsRef),
+          ]);
+          return {
+            ok: true,
+            bundle: {
+              profile: playerSnap.exists() ? playerSnap.data() : null,
+              state: stateSnap.exists() ? stateSnap.data() : null,
+              stats: statsSnap.exists() ? statsSnap.data() : null,
+            },
+          };
+        } catch (error) {
+          return { ok: false, message: `bundle load failed: ${String(error)}` };
+        }
+      },
+      async savePlayerBundle(payload) {
+        try {
+          const now = Date.now();
+          await Promise.all([
+            firestoreMod.setDoc(
+              playerRef,
+              {
+                uid,
+                email: payload?.profile?.email || null,
+                handle: payload?.profile?.handle || null,
+                status: payload?.profile?.status || 'active',
+                lastLoginAt: now,
+                updatedAt: now,
+              },
+              { merge: true }
+            ),
+            firestoreMod.setDoc(
+              stateRef,
+              {
+                nops: Number(payload?.state?.nops || 0),
+                ownedCommands: Array.isArray(payload?.state?.ownedCommands) ? payload.state.ownedCommands : [],
+                marketHoldings: payload?.state?.marketHoldings && typeof payload.state.marketHoldings === 'object' ? payload.state.marketHoldings : {},
+                updatedAt: now,
+              },
+              { merge: true }
+            ),
+            firestoreMod.setDoc(
+              statsRef,
+              {
+                totalCommandsOwned: Number(payload?.stats?.totalCommandsOwned || 0),
+                portfolioValue: Number(payload?.stats?.portfolioValue || 0),
+                totalEquity: Number(payload?.stats?.totalEquity || 0),
+                updatedAt: now,
+              },
+              { merge: true }
+            ),
+          ]);
+          return { ok: true };
+        } catch (error) {
+          return { ok: false, message: `bundle save failed: ${String(error)}` };
         }
       },
       async loadRoles() {
@@ -217,10 +300,19 @@ export async function initFirebaseDataBridge({ uid, onStatus = () => {} } = {}) 
 function offlineDataBridge(message) {
   return {
     mode: 'offline',
+    async ensurePlayerRecord() {
+      return { ok: false, message };
+    },
     async loadState() {
       return { ok: false, message };
     },
     async saveState() {
+      return { ok: false, message };
+    },
+    async loadPlayerBundle() {
+      return { ok: false, message };
+    },
+    async savePlayerBundle() {
       return { ok: false, message };
     },
     async loadRoles() {
@@ -250,6 +342,7 @@ function mapFirebaseAuthError(error) {
     'auth/invalid-email': 'Neural_ID must be a valid email format for this phase.',
     'auth/email-already-in-use': 'An account already exists for that Neural_ID. Try Sign in.',
     'auth/weak-password': 'Decrypt-Key is too weak. Use at least 6 characters.',
+    'auth/operation-not-allowed': 'Email/Password auth is disabled. Enable it in Firebase Console > Authentication > Sign-in method.',
     'auth/configuration-not-found': 'Firebase Auth is not fully configured. Enable Email/Password sign-in in Firebase Console > Authentication > Sign-in method, and verify the project matches this app config.',
   };
 

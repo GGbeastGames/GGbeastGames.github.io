@@ -9,12 +9,12 @@ This repo now includes:
 
 ```bash
 firebase login
-firebase use terminal-game-19338
+firebase use rootaccess-1b39e
 firebase deploy --only firestore:rules,firestore:indexes
 ```
 
 ## Auth requirement
-In Firebase Console for project `terminal-game-19338`:
+In Firebase Console for project `rootaccess-1b39e`:
 1. Go to **Authentication** → **Sign-in method**.
 2. Enable **Email/Password**.
 3. Save.
