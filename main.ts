@@ -1,3 +1,5 @@
+import { initFirebaseAuthBridge } from "./src/core/firebase-client.js";
+
 const ENTRY_HTML = "index.html";
 const REQUIRED_DOM_IDS = [
   "root",
@@ -23,6 +25,8 @@ const windowState = {
   zCounter: 10,
   desktopInitialized: false,
 };
+
+let authBridge = null;
 
 const appCatalog = {
   terminal: { title: "Terminal", subtitle: "Command shell and live logs" },
@@ -504,6 +508,26 @@ function initTaskbarAndWindows() {
   }
 }
 
+function initAuthBridge() {
+  const bootStatus = getEl("boot-status");
+
+  authBridge = {
+    mode: 'loading',
+    authenticate: async () => ({ ok: false, message: 'Auth service still initializing...' }),
+  };
+
+  initFirebaseAuthBridge({
+    onStatus(status) {
+      if (bootStatus && !windowState.desktopInitialized) {
+        bootStatus.textContent = status === 'online' ? 'AUTH ONLINE' : status === 'offline' ? 'AUTH OFFLINE' : 'AUTH LOADING';
+      }
+    },
+  }).then((bridge) => {
+    authBridge = bridge;
+    logDiagnostic('log', 'firebase auth bridge initialized', { mode: bridge.mode });
+  });
+}
+
 function showDesktopAfterLogin() {
   const experienceLayer = getEl("experience-layer");
   const introScreen = getEl("intro-screen");
@@ -571,7 +595,7 @@ function initLoginFlow() {
     revealLogin();
   });
 
-  loginForm.addEventListener("submit", (event) => {
+  loginForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     loginError.textContent = "";
 
@@ -584,10 +608,22 @@ function initLoginFlow() {
     }
 
     loginError.textContent = "Authenticating secure session…";
-    window.setTimeout(() => {
-      loginError.textContent = "";
-      showDesktopAfterLogin();
-    }, 550);
+
+    const bridge = authBridge;
+    if (!bridge || typeof bridge.authenticate !== 'function') {
+      loginError.textContent = 'Authentication service not ready yet. Please retry in a second.';
+      return;
+    }
+
+    const result = await bridge.authenticate(neuralValue, decryptValue);
+    if (!result.ok) {
+      loginError.textContent = result.message;
+      return;
+    }
+
+    logDiagnostic('log', 'user authenticated', { uid: result.user?.uid, email: result.user?.email });
+    loginError.textContent = "";
+    showDesktopAfterLogin();
   });
 }
 
@@ -630,6 +666,7 @@ function boot() {
   if (!ensureDomContract()) return;
 
   initRenderingPipeline();
+  initAuthBridge();
   mountExperienceShell();
 }
 
