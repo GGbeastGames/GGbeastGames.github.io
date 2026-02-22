@@ -11,7 +11,6 @@ const firebaseConfig = {
   apiKey: 'AIzaSyDYCVuqgeOapoL-gxIvjW_UG6WSV4GZyqo',
   authDomain: 'terminal-game-19338.firebaseapp.com',
   projectId: 'terminal-game-19338',
-  storageBucket: 'terminal-game-19338.firebasestorage.app',
   messagingSenderId: '202798356459',
   appId: '1:202798356459:web:96b9dd3669a10c8c7debae',
   measurementId: 'G-S3CS8SXKXE'
@@ -23,11 +22,17 @@ const firebaseConfig = {
 VITE_FIREBASE_API_KEY=
 VITE_FIREBASE_AUTH_DOMAIN=
 VITE_FIREBASE_PROJECT_ID=
-VITE_FIREBASE_STORAGE_BUCKET=
 VITE_FIREBASE_MESSAGING_SENDER_ID=
 VITE_FIREBASE_APP_ID=
 VITE_FIREBASE_MEASUREMENT_ID=
 ```
 
+## Enabled Firebase products
+- Firebase Authentication
+- Cloud Firestore
+- Optional Analytics (only bootstraps in supported browser runtimes)
+
+> Firebase Storage is intentionally **not** configured in this client.
+
 ## Security rules
-- Firestore / Storage rule templates are in `config/FIREBASE_RULES.md`.
+- Firestore rule templates are in `config/FIREBASE_RULES.md`.

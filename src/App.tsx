@@ -6,9 +6,8 @@ import {
   signInWithEmailAndPassword,
   signOut
 } from 'firebase/auth';
-import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { doc, onSnapshot, serverTimestamp, setDoc, collection, query, orderBy, deleteDoc } from 'firebase/firestore';
-import { auth, authPersistenceReady, db, storage } from './config/firebase';
+import { auth, authPersistenceReady, db } from './config/firebase';
 import { BlackMarketApp } from './components/apps/BlackMarketApp';
 import { BlockchainApp } from './components/apps/BlockchainApp';
 import { CasinoApp } from './components/apps/CasinoApp';
@@ -138,6 +137,10 @@ const STORAGE_KEY = 'aionous.desktop.v5';
 const BOOT_MS = 2600;
 const MAX_LOGS = 100;
 
+function getStorageKey(uid?: string | null): string {
+  return uid ? `${STORAGE_KEY}.user.${uid}` : `${STORAGE_KEY}.signed-out`;
+}
+
 const appTemplates: Record<AppId, Omit<WindowState, 'isOpen' | 'isMinimized' | 'isMaximized' | 'z'>> = {
   terminal: { id: 'terminal', title: 'Terminal', x: 50, y: 90, width: 700, height: 460 },
   market: { id: 'market', title: 'Black Market', x: 190, y: 120, width: 500, height: 340 },
@@ -236,7 +239,7 @@ function readPersisted(storageKey: string): PersistedDesktop {
 
 export function App() {
   const [phase, setPhase] = useState<AppPhase>('boot');
-  const initial = useMemo(() => readPersisted(`${STORAGE_KEY}.signed-default`), []);
+  const initial = useMemo(() => readPersisted(getStorageKey(null)), []);
   const [windows, setWindows] = useState<WindowState[]>(initial.windows);
   const [player, setPlayer] = useState<PlayerState>(initial.player);
   const [cooldowns, setCooldowns] = useState<Cooldowns>(initial.cooldowns);
@@ -298,7 +301,7 @@ export function App() {
         const nextUid = nextUser?.uid ?? null;
         const prevUid = prevAuthUidRef.current;
         if (nextUid !== prevUid) {
-          const storageKey = `${STORAGE_KEY}.signed-default`;
+          const storageKey = getStorageKey(nextUid);
           loadStateFromCache(storageKey);
           setInPvpQueue(false);
           setActiveMatch(null);
@@ -484,7 +487,7 @@ export function App() {
   ]);
 
   useEffect(() => {
-    const storageKey = `${STORAGE_KEY}.signed-default`;
+    const storageKey = getStorageKey(user?.uid);
     localStorage.setItem(
       storageKey,
       JSON.stringify({
@@ -504,11 +507,28 @@ export function App() {
         logs: logs.slice(-MAX_LOGS)
       } satisfies PersistedDesktop)
     );
-  }, [windows, player, cooldowns, progression, shopInventory, retention, casino, ranked, blockchain, growth, season, admin, displaySettings, logs]);
+  }, [
+    user?.uid,
+    windows,
+    player,
+    cooldowns,
+    progression,
+    shopInventory,
+    retention,
+    casino,
+    ranked,
+    blockchain,
+    growth,
+    season,
+    admin,
+    displaySettings,
+    logs
+  ]);
 
   useEffect(() => {
     localStorage.removeItem('aionous.desktop.v4');
     localStorage.removeItem('aionous.desktop.v5.guest');
+    localStorage.removeItem('aionous.desktop.v5.signed-default');
   }, []);
 
   useEffect(() => {
@@ -528,22 +548,33 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (!user) {
+      setPvpQueue([]);
+      return;
+    }
+
     const queueQuery = query(collection(db, 'pvpQueue'), orderBy('queuedAt', 'desc'));
-    const unsub = onSnapshot(queueQuery, (snap) => {
-      const rows: PvpQueueEntry[] = snap.docs.map((row) => {
-        const value = row.data() as { alias: string; rankedPoints: number; queuedAt: number };
-        return {
-          id: row.id,
-          alias: value.alias,
-          rankedPoints: value.rankedPoints,
-          queuedAt: value.queuedAt
-        };
-      });
-      setPvpQueue(rows);
-    });
+    const unsub = onSnapshot(
+      queueQuery,
+      (snap) => {
+        const rows: PvpQueueEntry[] = snap.docs.map((row) => {
+          const value = row.data() as { alias: string; rankedPoints: number; queuedAt: number };
+          return {
+            id: row.id,
+            alias: value.alias,
+            rankedPoints: value.rankedPoints,
+            queuedAt: value.queuedAt
+          };
+        });
+        setPvpQueue(rows);
+      },
+      () => {
+        setPvpQueue([]);
+      }
+    );
 
     return () => unsub();
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     const onMove = (event: MouseEvent) => {
@@ -921,31 +952,6 @@ export function App() {
     setAdmin((prev) => appendAudit(upsertPlayerFlag(prev, alias, { permBanned: true, flagged: true }), desktopIdentity, 'perm_ban', alias));
   }
 
-  async function onUploadProfilePhoto(file: File) {
-    const maxSize = 1_000_000;
-    if (file.size > maxSize) {
-      appendLogs([makeLog('Profile upload failed: image must be <= 1MB.', 'error')]);
-      return;
-    }
-
-    if (!user) {
-      appendLogs([makeLog('Profile upload requires a signed-in account.', 'warn')]);
-      return;
-    }
-
-    try {
-      const path = `profiles/${user.uid}/${Date.now()}-${file.name}`;
-      const storageRef = ref(storage, path);
-      await uploadBytes(storageRef, file);
-      const downloadUrl = await getDownloadURL(storageRef);
-      setRetention((prev) => ({ ...prev, profilePhotoUrl: downloadUrl, profilePhotoPath: path }));
-      appendLogs([makeLog('Profile image uploaded successfully.', 'success')]);
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : 'Unknown error';
-      appendLogs([makeLog(`Profile upload failed: ${reason}`, 'error')]);
-    }
-  }
-
   function bringToFront(id: AppId) {
     setWindows((prev) => prev.map((w) => (w.id === id ? { ...w, z: topZ + 1 } : w)));
   }
@@ -1180,7 +1186,6 @@ export function App() {
                   onAdminFlagPlayer,
                   onAdminTempBan,
                   onAdminPermBan,
-                  onUploadProfilePhoto,
                   displaySettings,
                   onUpdateDisplaySettings: (patch) => setDisplaySettings((prev) => ({ ...prev, ...patch, uiScale: patch.uiScale !== undefined ? clampUiScale(patch.uiScale) : prev.uiScale }))
                 })}
@@ -1270,7 +1275,6 @@ type RenderContext = {
   onAdminFlagPlayer: (alias: string, note: string) => void;
   onAdminTempBan: (alias: string, hours: number) => void;
   onAdminPermBan: (alias: string) => void;
-  onUploadProfilePhoto: (file: File) => Promise<void>;
   displaySettings: DisplaySettings;
   onUpdateDisplaySettings: (patch: Partial<DisplaySettings>) => void;
 };
@@ -1320,7 +1324,6 @@ function renderWindowContent(id: AppId, ctx: RenderContext) {
           retention={ctx.retention}
           onClaimMission={ctx.onClaimMission}
           onClaimDailyStreak={ctx.onClaimDailyStreak}
-          onUploadProfilePhoto={ctx.onUploadProfilePhoto}
         />
       );
     case 'casino':

@@ -13,7 +13,6 @@ type ProfileAppProps = {
   retention: RetentionState;
   onClaimMission: (missionId: string) => void;
   onClaimDailyStreak: () => void;
-  onUploadProfilePhoto: (file: File) => void;
 };
 
 function xpToNextLevel(level: number): number {
@@ -24,7 +23,7 @@ function getMissionTemplate(id: string): MissionTemplate | undefined {
   return missionTemplates.find((mission) => mission.id === id);
 }
 
-export function ProfileApp({ identity, player, retention, onClaimMission, onClaimDailyStreak, onUploadProfilePhoto }: ProfileAppProps) {
+export function ProfileApp({ identity, player, retention, onClaimMission, onClaimDailyStreak }: ProfileAppProps) {
   const xpNeeded = xpToNextLevel(player.level);
   const xpPercent = Math.min(100, Math.round((player.xp / xpNeeded) * 100));
 
@@ -69,19 +68,7 @@ export function ProfileApp({ identity, player, retention, onClaimMission, onClai
         </div>
       </div>
 
-      <label className="upload-row">
-        Upload profile image (max 1MB)
-        <input
-          type="file"
-          accept="image/png,image/jpeg,image/webp"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (!file) return;
-            onUploadProfilePhoto(file);
-            event.currentTarget.value = '';
-          }}
-        />
-      </label>
+      <p className="muted">Profile avatars are local-only for now (Firebase Storage disabled).</p>
 
       <div className="profile-grid">
         <section>

@@ -54,32 +54,5 @@ service cloud.firestore {
 }
 ```
 
-## Storage Rules (`Storage > Rules`)
-```txt
-rules_version = '2';
-service firebase.storage {
-  match /b/{bucket}/o {
-    function signedIn() {
-      return request.auth != null;
-    }
-
-    function isOwner(uid) {
-      return signedIn() && request.auth.uid == uid;
-    }
-
-    match /profiles/{uid}/{allPaths=**} {
-      allow read: if true;
-      allow write: if isOwner(uid)
-        && request.resource.size < 2 * 1024 * 1024
-        && request.resource.contentType.matches('image/.*');
-    }
-
-    match /{allPaths=**} {
-      allow read, write: if false;
-    }
-  }
-}
-```
-
-## Admin claim note
-To enable `auth.token.admin`, set custom claims from a trusted server/admin script, then force user token refresh.
+## Storage
+Firebase Storage is intentionally not used by the current client build.
