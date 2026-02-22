@@ -48,6 +48,13 @@ export interface LuckCharmItem {
   maxUsesPerPurchase: number;
 }
 
+export interface MarketTicker {
+  symbol: 'VALK' | 'GLYPH' | 'ZERO' | 'PULSE' | 'TITAN';
+  name: string;
+  basePrice: number;
+  volatilityPct: number;
+}
+
 export const TRAIT_SUFFIX: Record<TraitId, string> = {
   spring: 'TS',
 };
@@ -110,6 +117,14 @@ export const SHOP_ITEMS: ShopItem[] = [
     cost: 320,
     removedFromShop: true,
   },
+  {
+    sku: 'software_block_manager',
+    type: 'software',
+    commandId: 'packetstorm',
+    title: 'Block Manager Utility',
+    description: 'Unlocks block-management operations in the live market terminal.',
+    cost: 260,
+  },
 ];
 
 export const CASINO_GAMES: CasinoGameModule[] = [
@@ -159,6 +174,14 @@ export const LUCK_CHARM_ITEMS: LuckCharmItem[] = [
     winBoostPct: 1.5,
     maxUsesPerPurchase: 15,
   },
+];
+
+export const MARKET_TICKERS: MarketTicker[] = [
+  { symbol: 'VALK', name: 'Valkyrie Dynamics', basePrice: 48, volatilityPct: 9 },
+  { symbol: 'GLYPH', name: 'Glyph Logicworks', basePrice: 34, volatilityPct: 7 },
+  { symbol: 'ZERO', name: 'ZeroDay Fabrication', basePrice: 64, volatilityPct: 12 },
+  { symbol: 'PULSE', name: 'Pulse Grid Holdings', basePrice: 25, volatilityPct: 6 },
+  { symbol: 'TITAN', name: 'Titan Block Systems', basePrice: 78, volatilityPct: 10 },
 ];
 
 export const CASINO_ANTI_ABUSE = {
