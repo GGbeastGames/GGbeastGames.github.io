@@ -508,3 +508,84 @@ body {
 }
 
 [hidden] { display: none !important; }
+
+.terminal-app {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.terminal-header-row h2 {
+  margin: 0 0 0.25rem;
+}
+
+.terminal-header-row p {
+  margin: 0;
+}
+
+.terminal-output {
+  min-height: 180px;
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid rgba(16, 234, 176, 0.2);
+  border-radius: 8px;
+  background: rgba(3, 13, 16, 0.95);
+  padding: 0.55rem;
+  display: grid;
+  gap: 0.32rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.82rem;
+}
+
+.terminal-log {
+  color: var(--text-secondary);
+}
+
+.terminal-log--hint {
+  color: var(--accent-secondary);
+}
+
+.terminal-log--success {
+  color: #76ffc8;
+}
+
+.terminal-log--warn {
+  color: #ffd092;
+}
+
+.terminal-log--error {
+  color: #ffb6cd;
+}
+
+.terminal-controls {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.45rem;
+}
+
+.terminal-input {
+  border: 1px solid rgba(16, 234, 176, 0.3);
+  border-radius: 8px;
+  background: rgba(5, 19, 23, 0.94);
+  color: var(--text-primary);
+  padding: 0.5rem 0.6rem;
+}
+
+.terminal-run {
+  border: 1px solid rgba(16, 234, 176, 0.35);
+  border-radius: 8px;
+  background: var(--state-normal);
+  color: var(--text-primary);
+  padding: 0.5rem 0.85rem;
+  cursor: pointer;
+}
+
+.terminal-run:hover {
+  border-color: var(--accent-primary);
+  background: var(--state-hover);
+}
+
+.terminal-cooldown {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+}

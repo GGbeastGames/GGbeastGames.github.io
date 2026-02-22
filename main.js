@@ -1,4 +1,5 @@
 import { initFirebaseAuthBridge } from "./src/core/firebase-client.js";
+import { createTerminalEngine } from "./src/core/terminal-engine.js";
 
 const ENTRY_HTML = "index.html";
 const REQUIRED_DOM_IDS = [
@@ -27,6 +28,7 @@ const windowState = {
 };
 
 let authBridge = null;
+const terminalEngine = createTerminalEngine();
 
 const appCatalog = {
   terminal: { title: "Terminal", subtitle: "Command shell and live logs" },
@@ -141,9 +143,14 @@ function initRenderingPipeline() {
     logDiagnostic("log", "effects toggle changed", { value: next });
   });
 
+  let resizeRaf = null;
   window.addEventListener("resize", () => {
-    qualityChip.textContent = `Quality: ${computeQualityTier()}`;
-    clampAllWindows();
+    if (resizeRaf) return;
+    resizeRaf = window.requestAnimationFrame(() => {
+      qualityChip.textContent = `Quality: ${computeQualityTier()}`;
+      clampAllWindows();
+      resizeRaf = null;
+    });
   });
 }
 
@@ -213,17 +220,95 @@ function bringToFront(appId) {
   win.element.style.zIndex = String(win.z);
 }
 
+function createLogLine(text, level = "normal") {
+  const line = document.createElement("div");
+  line.className = `terminal-log terminal-log--${level}`;
+  line.textContent = text;
+  return line;
+}
+
+function formatSeconds(ms) {
+  return Math.max(0, Math.ceil(ms / 1000));
+}
+
+function createTerminalWindowView() {
+  const wrapper = document.createElement("section");
+  wrapper.className = "app-window-body terminal-app";
+
+  const top = document.createElement("div");
+  top.className = "terminal-header-row";
+  top.innerHTML = '<h2>Terminal Console</h2><p>Run: <code>phish</code> for starter income.</p>';
+
+  const output = document.createElement("div");
+  output.className = "terminal-output";
+  output.append(
+    createLogLine("[SYS] RootAccess terminal initialized."),
+    createLogLine("[TIP] Command available: phish", "hint")
+  );
+
+  const controls = document.createElement("form");
+  controls.className = "terminal-controls";
+  controls.innerHTML = `
+    <input class="terminal-input" name="command" type="text" placeholder="Enter command" autocomplete="off" />
+    <button class="terminal-run" type="submit">Run</button>
+  `;
+
+  const cooldownInfo = document.createElement("p");
+  cooldownInfo.className = "terminal-cooldown";
+  cooldownInfo.textContent = "Cooldown: ready";
+
+  const appendResult = (result) => {
+    if (result.type === "cooldown") {
+      output.append(createLogLine(`[COOLDOWN] ${result.message}`, "warn"));
+      cooldownInfo.textContent = `Cooldown: ${formatSeconds(result.remainingMs)}s remaining`;
+      return;
+    }
+
+    if (!result.ok) {
+      output.append(createLogLine(`[ERR] ${result.message}`, "error"));
+      return;
+    }
+
+    const level = result.success ? "success" : "warn";
+    output.append(createLogLine(`[EXEC] ${result.message}`, level));
+    cooldownInfo.textContent = `Cooldown: ${formatSeconds(result.cooldownMs)}s after run`;
+  };
+
+  controls.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const input = controls.querySelector(".terminal-input");
+    const command = input.value.trim();
+    if (!command) {
+      output.append(createLogLine("[ERR] Empty command.", "error"));
+      return;
+    }
+    const result = terminalEngine.execute(command);
+    appendResult(result);
+    input.value = "";
+    output.scrollTop = output.scrollHeight;
+  });
+
+  const inspect = terminalEngine.inspect().commands.map((c) => `${c.id} (cooldown ${Math.ceil(c.cooldownMs / 1000)}s)`).join(", ");
+  output.append(createLogLine(`[DATA] Commands loaded: ${inspect}`));
+
+  wrapper.append(top, output, controls, cooldownInfo);
+  return wrapper;
+}
+
 function renderWindowBody(appId) {
   const appDef = appCatalog[appId] || { title: "Unknown App", subtitle: "No app metadata found." };
+
+  if (appId === "terminal") {
+    return createTerminalWindowView();
+  }
+
   const container = document.createElement("div");
   container.className = "app-window-body";
-
   container.innerHTML = `
     <h2>${appDef.title}</h2>
     <p>${appDef.subtitle}</p>
-    <p class="hint">Task 4 note: cutscene/login flow is active before desktop mount.</p>
+    <p class="hint">Phase 6 running: terminal command system now active.</p>
   `;
-
   return container;
 }
 
