@@ -151,3 +151,22 @@
   color: #d8f7ff;
   padding: 0.4rem 0.5rem;
 }
+
+.index-app,
+.market-app {
+  display: grid;
+  gap: 0.55rem;
+  max-height: 100%;
+  overflow: auto;
+}
+
+.index-app__group,
+.market-app__item {
+  border: 1px solid rgba(78, 225, 255, 0.3);
+  background: rgba(5, 13, 28, 0.72);
+  padding: 0.5rem;
+}
+
+.market-app__item button {
+  margin-right: 0.4rem;
+}
