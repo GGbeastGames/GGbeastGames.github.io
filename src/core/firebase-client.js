@@ -65,6 +65,32 @@ export async function initFirebaseAuthBridge({ onStatus = () => {} } = {}) {
           };
         }
       },
+      async register(neuralId, decryptKey) {
+        if (!neuralId.includes('@')) {
+          return {
+            ok: false,
+            message: 'Neural_ID must be a valid email to create an account in this phase.',
+          };
+        }
+
+        try {
+          const credential = await authMod.createUserWithEmailAndPassword(auth, neuralId, decryptKey);
+          const user = credential.user;
+          return {
+            ok: true,
+            user: {
+              uid: user.uid,
+              email: user.email || neuralId,
+              emailVerified: !!user.emailVerified,
+            },
+          };
+        } catch (error) {
+          return {
+            ok: false,
+            message: mapFirebaseAuthError(error),
+          };
+        }
+      },
     };
   } catch (error) {
     onStatus('offline');
@@ -76,6 +102,13 @@ export async function initFirebaseAuthBridge({ onStatus = () => {} } = {}) {
           ok: false,
           message:
             'Authentication service is unavailable right now. Check network/Firebase config and try again.',
+        };
+      },
+      async register() {
+        return {
+          ok: false,
+          message:
+            'Signup is unavailable right now. Check network/Firebase config and try again.',
         };
       },
     };
@@ -158,6 +191,8 @@ function mapFirebaseAuthError(error) {
     'auth/too-many-requests': 'Too many attempts. Wait and try again.',
     'auth/network-request-failed': 'Network issue while reaching Firebase auth service.',
     'auth/invalid-email': 'Neural_ID must be a valid email format for this phase.',
+    'auth/email-already-in-use': 'An account already exists for that Neural_ID. Try Sign in.',
+    'auth/weak-password': 'Decrypt-Key is too weak. Use at least 6 characters.',
   };
 
   return mapping[code] || `Authentication failed (${code}).`;

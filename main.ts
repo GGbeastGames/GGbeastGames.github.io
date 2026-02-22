@@ -13,12 +13,15 @@ const REQUIRED_DOM_IDS = [
   "skip-intro",
   "login-screen",
   "login-form",
+  "auth-mode-label",
+  "auth-mode-toggle",
   "neural-id",
   "decrypt-key",
   "login-error",
   "desktop-shell",
 ];
 const WINDOW_STORE_KEY = "rootaccess.windows.v1";
+const MARKET_CACHE_KEY = "rootaccess.blockchain.v1";
 
 const diagnostics = [];
 const windowState = {
@@ -50,8 +53,26 @@ const appCatalog = {
   terminal: { title: "Terminal", subtitle: "Command shell and live logs" },
   market: { title: "Black Market", subtitle: "Acquire command lessons and software" },
   index: { title: "Index", subtitle: "Owned + locked command catalogue" },
+  blockchain: { title: "Blockchain Exchange", subtitle: "Trade corp shares with safety controls" },
   settings: { title: "Settings", subtitle: "Client quality and gameplay preferences" },
   admin: { title: "Admin", subtitle: "Role-restricted live-ops console (placeholder)" },
+};
+
+const MARKET_SYMBOLS = ["VALK", "GLYPH", "ZERO", "PULSE", "TITAN"];
+const marketState = {
+  companies: MARKET_SYMBOLS.map((symbol, idx) => ({
+    symbol,
+    price: 80 + idx * 22,
+    prevPrice: 80 + idx * 22,
+    volatility: 0.014 + idx * 0.002,
+    halted: false,
+  })),
+  holdings: Object.fromEntries(MARKET_SYMBOLS.map((symbol) => [symbol, 0])),
+  history: [],
+  transactionCooldownUntil: 0,
+  circuitBreakerUntil: 0,
+  disconnected: !navigator.onLine,
+  tickerHandle: null,
 };
 
 function logDiagnostic(level, message, context = {}) {
@@ -305,6 +326,140 @@ function purchaseCommand(commandId) {
   return { ok: true, message: `Purchased ${command.label} for ${command.price} Ø.` };
 }
 
+function saveMarketCache() {
+  try {
+    const payload = {
+      companies: marketState.companies,
+      holdings: marketState.holdings,
+      history: marketState.history.slice(0, 25),
+      transactionCooldownUntil: marketState.transactionCooldownUntil,
+    };
+    localStorage.setItem(MARKET_CACHE_KEY, JSON.stringify(payload));
+  } catch (error) {
+    logDiagnostic("warn", "unable to persist market cache", { error: String(error) });
+  }
+}
+
+function loadMarketCache() {
+  try {
+    const raw = localStorage.getItem(MARKET_CACHE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed?.companies)) {
+      marketState.companies = parsed.companies
+        .filter((item) => MARKET_SYMBOLS.includes(item.symbol))
+        .map((item, idx) => ({
+          symbol: item.symbol,
+          price: Math.max(5, Number(item.price) || (80 + idx * 22)),
+          prevPrice: Math.max(5, Number(item.prevPrice) || Number(item.price) || (80 + idx * 22)),
+          volatility: Math.max(0.005, Math.min(0.05, Number(item.volatility) || (0.014 + idx * 0.002))),
+          halted: Boolean(item.halted),
+        }));
+    }
+    if (parsed?.holdings && typeof parsed.holdings === "object") {
+      MARKET_SYMBOLS.forEach((symbol) => {
+        marketState.holdings[symbol] = Math.max(0, Number(parsed.holdings[symbol]) || 0);
+      });
+    }
+    if (Array.isArray(parsed?.history)) {
+      marketState.history = parsed.history.slice(0, 25);
+    }
+  } catch (error) {
+    logDiagnostic("warn", "unable to load market cache", { error: String(error) });
+  }
+}
+
+function getPortfolioValue() {
+  return marketState.companies.reduce((sum, company) => sum + company.price * (marketState.holdings[company.symbol] || 0), 0);
+}
+
+function getTotalEquity() {
+  return playerState.nops + getPortfolioValue();
+}
+
+function marketTransactionGuard() {
+  const now = Date.now();
+  if (marketState.circuitBreakerUntil > now) {
+    return { ok: false, message: `Exchange halted for ${formatSeconds(marketState.circuitBreakerUntil - now)}s due to volatility spike.` };
+  }
+  if (marketState.transactionCooldownUntil > now) {
+    return { ok: false, message: `Trade cooldown active (${formatSeconds(marketState.transactionCooldownUntil - now)}s).` };
+  }
+  return { ok: true };
+}
+
+function transactShares(symbol, direction) {
+  const company = marketState.companies.find((item) => item.symbol === symbol);
+  if (!company) return { ok: false, message: "Unknown symbol." };
+
+  const guard = marketTransactionGuard();
+  if (!guard.ok) return guard;
+
+  if (direction === "buy") {
+    if (playerState.nops < company.price) return { ok: false, message: `Insufficient Ø. Need ${company.price.toFixed(2)} Ø.` };
+    playerState.nops -= company.price;
+    marketState.holdings[symbol] += 1;
+  } else {
+    if ((marketState.holdings[symbol] || 0) < 1) return { ok: false, message: `No ${symbol} shares available to sell.` };
+    playerState.nops += company.price;
+    marketState.holdings[symbol] -= 1;
+  }
+
+  marketState.transactionCooldownUntil = Date.now() + 3000;
+  const action = direction === "buy" ? "BUY" : "SELL";
+  marketState.history.unshift(`${new Date().toLocaleTimeString()} ${action} ${symbol} @ ${company.price.toFixed(2)} Ø`);
+  marketState.history = marketState.history.slice(0, 25);
+  notifyPlayerState();
+  persistPlayerStateToCloud();
+  saveMarketCache();
+
+  return { ok: true, message: `${action} ${symbol} executed at ${company.price.toFixed(2)} Ø.` };
+}
+
+function tickMarketPrices() {
+  if (marketState.disconnected) return;
+
+  let breakerTriggered = false;
+  marketState.companies = marketState.companies.map((company) => {
+    const drift = (Math.random() - 0.5) * company.volatility * 2;
+    const prevPrice = company.price;
+    const nextPrice = Math.max(5, company.price * (1 + drift));
+    const deltaPct = Math.abs((nextPrice - prevPrice) / prevPrice);
+    if (deltaPct > 0.095) breakerTriggered = true;
+
+    return {
+      ...company,
+      prevPrice,
+      price: Number(nextPrice.toFixed(2)),
+      halted: false,
+    };
+  });
+
+  if (breakerTriggered) {
+    const haltDuration = 15000;
+    marketState.circuitBreakerUntil = Date.now() + haltDuration;
+    marketState.history.unshift(`${new Date().toLocaleTimeString()} HALT Market paused due to volatility anomaly.`);
+  }
+
+  marketState.history = marketState.history.slice(0, 25);
+  notifyPlayerState();
+  saveMarketCache();
+}
+
+function startMarketTicker() {
+  if (marketState.tickerHandle) return;
+  loadMarketCache();
+  marketState.tickerHandle = window.setInterval(tickMarketPrices, 5000);
+  window.addEventListener("online", () => {
+    marketState.disconnected = false;
+    notifyPlayerState();
+  });
+  window.addEventListener("offline", () => {
+    marketState.disconnected = true;
+    notifyPlayerState();
+  });
+}
+
 function createLogLine(text, level = "normal") {
   const line = document.createElement("div");
   line.className = `terminal-log terminal-log--${level}`;
@@ -476,19 +631,107 @@ function createIndexWindowView() {
   return wrapper;
 }
 
+function createBlockchainWindowView() {
+  const wrapper = document.createElement("section");
+  wrapper.className = "app-window-body blockchain-app";
+
+  const title = document.createElement("h2");
+  title.textContent = "Blockchain Exchange";
+
+  const status = document.createElement("p");
+  status.className = "blockchain-status";
+
+  const summary = document.createElement("div");
+  summary.className = "blockchain-summary";
+
+  const table = document.createElement("div");
+  table.className = "blockchain-table";
+
+  const historyTitle = document.createElement("h3");
+  historyTitle.textContent = "Recent Transactions";
+  const history = document.createElement("ul");
+  history.className = "blockchain-history";
+
+  const render = () => {
+    const now = Date.now();
+    if (marketState.disconnected) {
+      status.textContent = "Feed status: DISCONNECTED (showing cached prices)";
+    } else if (marketState.circuitBreakerUntil > now) {
+      status.textContent = `Feed status: HALTED ${formatSeconds(marketState.circuitBreakerUntil - now)}s remaining`;
+    } else {
+      status.textContent = "Feed status: LIVE";
+    }
+
+    summary.innerHTML = `
+      <article><strong>Liquid Ø</strong><span>${playerState.nops.toFixed(2)}</span></article>
+      <article><strong>Portfolio</strong><span>${getPortfolioValue().toFixed(2)} Ø</span></article>
+      <article><strong>Total Equity</strong><span>${getTotalEquity().toFixed(2)} Ø</span></article>
+    `;
+
+    table.innerHTML = "";
+    marketState.companies.forEach((company) => {
+      const row = document.createElement("article");
+      row.className = "blockchain-row";
+      const direction = company.price >= company.prevPrice ? "up" : "down";
+      const change = (((company.price - company.prevPrice) / company.prevPrice) * 100) || 0;
+      row.innerHTML = `
+        <div>
+          <strong>${company.symbol}</strong>
+          <p>Price: ${company.price.toFixed(2)} Ø</p>
+          <small class="chip-${direction}">${change >= 0 ? "+" : ""}${change.toFixed(2)}%</small>
+          <small>Held: ${marketState.holdings[company.symbol] || 0}</small>
+        </div>
+      `;
+      const actionWrap = document.createElement("div");
+      actionWrap.className = "blockchain-actions";
+      const buyBtn = document.createElement("button");
+      buyBtn.type = "button";
+      buyBtn.textContent = "Buy 1";
+      buyBtn.addEventListener("click", () => {
+        const result = transactShares(company.symbol, "buy");
+        status.textContent = result.message;
+      });
+      const sellBtn = document.createElement("button");
+      sellBtn.type = "button";
+      sellBtn.textContent = "Sell 1";
+      sellBtn.addEventListener("click", () => {
+        const result = transactShares(company.symbol, "sell");
+        status.textContent = result.message;
+      });
+      actionWrap.append(buyBtn, sellBtn);
+      row.appendChild(actionWrap);
+      table.appendChild(row);
+    });
+
+    history.innerHTML = "";
+    const events = marketState.history.length ? marketState.history : ["No transactions yet."];
+    events.forEach((entry) => {
+      const li = document.createElement("li");
+      li.textContent = entry;
+      history.appendChild(li);
+    });
+  };
+
+  render();
+  subscribePlayerState(render);
+  wrapper.append(title, status, summary, table, historyTitle, history);
+  return wrapper;
+}
+
 function renderWindowBody(appId) {
   const appDef = appCatalog[appId] || { title: "Unknown App", subtitle: "No app metadata found." };
 
   if (appId === "terminal") return createTerminalWindowView();
   if (appId === "market") return createBlackMarketWindowView();
   if (appId === "index") return createIndexWindowView();
+  if (appId === "blockchain") return createBlockchainWindowView();
 
   const container = document.createElement("div");
   container.className = "app-window-body";
   container.innerHTML = `
     <h2>${appDef.title}</h2>
     <p>${appDef.subtitle}</p>
-    <p class="hint">Phase 7 running: market/index systems active with player-state sync.</p>
+    <p class="hint">Phase 8 running: market/index + blockchain exchange systems active.</p>
   `;
   return container;
 }
@@ -780,6 +1023,7 @@ function initAuthBridge() {
   authBridge = {
     mode: 'loading',
     authenticate: async () => ({ ok: false, message: 'Auth service still initializing...' }),
+    register: async () => ({ ok: false, message: 'Auth service still initializing...' }),
   };
 
   initFirebaseAuthBridge({
@@ -809,6 +1053,7 @@ function showDesktopAfterLogin() {
 
   if (!windowState.desktopInitialized) {
     windowState.desktopInitialized = true;
+    startMarketTicker();
     initTaskbarAndWindows();
   }
 }
@@ -825,14 +1070,26 @@ function initLoginFlow() {
   const introStream = getEl("intro-stream");
   const loginScreen = getEl("login-screen");
   const loginForm = getEl("login-form");
+  const authModeLabel = getEl("auth-mode-label");
+  const authModeToggle = getEl("auth-mode-toggle");
   const loginError = getEl("login-error");
   const neuralId = getEl("neural-id");
   const decryptKey = getEl("decrypt-key");
 
-  if (!introScreen || !skipIntro || !introStream || !loginScreen || !loginForm || !loginError || !neuralId || !decryptKey) {
+  if (!introScreen || !skipIntro || !introStream || !loginScreen || !loginForm || !authModeLabel || !authModeToggle || !loginError || !neuralId || !decryptKey) {
     failBoot("intro/login flow failed to initialize due to missing nodes");
     return;
   }
+
+  let authMode = "signin";
+  const updateAuthModeUi = () => {
+    const signingIn = authMode === "signin";
+    authModeLabel.textContent = `Mode: ${signingIn ? "Sign in" : "Sign up"}`;
+    authModeToggle.textContent = signingIn ? "Need an account? Create one" : "Already have an account? Sign in";
+    const submit = getEl("login-submit");
+    if (submit) submit.textContent = signingIn ? "Authenticate" : "Create account";
+  };
+  updateAuthModeUi();
 
   const introLines = [
     "Handshake established with relay-04…",
@@ -861,6 +1118,12 @@ function initLoginFlow() {
     revealLogin();
   });
 
+  authModeToggle.addEventListener("click", () => {
+    authMode = authMode === "signin" ? "signup" : "signin";
+    loginError.textContent = "";
+    updateAuthModeUi();
+  });
+
   loginForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     loginError.textContent = "";
@@ -881,7 +1144,13 @@ function initLoginFlow() {
       return;
     }
 
-    const result = await bridge.authenticate(neuralValue, decryptValue);
+    const action = authMode === "signup" ? bridge.register : bridge.authenticate;
+    if (typeof action !== "function") {
+      loginError.textContent = "Authentication mode unavailable right now. Please retry.";
+      return;
+    }
+
+    const result = await action(neuralValue, decryptValue);
     if (!result.ok) {
       loginError.textContent = result.message;
       return;

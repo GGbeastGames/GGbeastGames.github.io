@@ -34,6 +34,7 @@
         <section id="login-screen" class="login-screen" hidden aria-label="login screen">
           <form id="login-form" class="login-card" novalidate>
             <h2>ACCESS TERMINAL</h2>
+            <p id="auth-mode-label" class="login-mode">Mode: Sign in</p>
             <label>
               Neural_ID
               <input id="neural-id" name="neuralId" type="text" autocomplete="username" required />
@@ -43,7 +44,8 @@
               <input id="decrypt-key" name="decryptKey" type="password" autocomplete="current-password" required />
             </label>
             <button id="login-submit" type="submit">Authenticate</button>
-            <p class="login-note">Secure sign-in only. Firebase email/password auth is required in this phase.</p>
+            <button id="auth-mode-toggle" type="button" class="login-toggle">Need an account? Create one</button>
+            <p class="login-note">Firebase email/password auth only in this phase. Use Sign up to create your account first.</p>
             <p id="login-error" class="login-error" role="alert" aria-live="polite"></p>
           </form>
         </section>
@@ -76,6 +78,7 @@
           <button class="taskbar-app" data-app="terminal">Terminal</button>
           <button class="taskbar-app" data-app="market">Black Market</button>
           <button class="taskbar-app" data-app="index">Index</button>
+          <button class="taskbar-app" data-app="blockchain">Blockchain</button>
           <button class="taskbar-app" data-app="settings">Settings</button>
           <button class="taskbar-app" data-app="admin">Admin</button>
         </footer>
