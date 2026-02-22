@@ -3,6 +3,8 @@ import { ReactNode, useMemo, useState } from 'react';
 import { useResponsiveScale } from '../hooks/useResponsiveScale';
 import { useSfx } from '../hooks/useSfx';
 import { toThemeCssVariables, webglThemeSkin } from '../theme/webglTheme';
+import { requestCommandExecution } from '../../../services/commands/commandExecutor';
+import { TerminalConsole } from './TerminalConsole';
 
 interface DesktopEnvironmentProps {
   loginWindow: ReactNode;
@@ -71,7 +73,7 @@ export const DesktopEnvironment = ({ loginWindow }: DesktopEnvironmentProps) => 
         minimized: false,
         maximized: false,
         z: Math.max(...previous.map((windowState) => windowState.z), 1) + 1,
-        content: <pre className="console-window">Boot sequence stable. Awaiting command...</pre>,
+        content: <TerminalConsole executeCommandRequest={requestCommandExecution} />,
       },
     ]);
     void sfx.play('open');

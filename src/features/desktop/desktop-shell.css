@@ -113,3 +113,41 @@
   from { transform: translateY(-12px); }
   to { transform: translateY(16px); }
 }
+
+.terminal-console {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  gap: 0.75rem;
+  height: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.terminal-console__history {
+  margin: 0;
+  overflow: auto;
+  background: rgba(2, 7, 20, 0.78);
+  border: 1px solid rgba(78, 225, 255, 0.35);
+  padding: 0.5rem;
+}
+
+.terminal-console__line {
+  margin: 0 0 0.2rem;
+}
+
+.terminal-console__line.is-success { color: #72f6b0; }
+.terminal-console__line.is-error { color: #ff9d9d; }
+
+.terminal-console__prompt {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.terminal-console__prompt input {
+  width: 100%;
+  background: rgba(5, 13, 28, 0.95);
+  border: 1px solid rgba(78, 225, 255, 0.35);
+  color: #d8f7ff;
+  padding: 0.4rem 0.5rem;
+}
