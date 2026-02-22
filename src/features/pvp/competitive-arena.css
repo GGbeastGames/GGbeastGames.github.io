@@ -1,0 +1,5 @@
+.pvp-arena { padding: 16px; margin: 12px; border: 1px solid #2fffc1; background: #090f14; color: #d7fff5; border-radius: 10px; }
+.pvp-controls { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.pvp-controls button { background: #112130; color: #d7fff5; border: 1px solid #2fffc1; border-radius: 6px; padding: 6px 10px; }
+.split-screen { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.split-screen article { border: 1px solid #335464; border-radius: 8px; padding: 10px; background: #101822; }
