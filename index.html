@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="RootAccess - Cyberpunk desktop hacking game shell"
+    />
+    <title>RootAccess // Boot Sequence</title>
+    <link rel="stylesheet" href="./main.css" />
+  </head>
+  <body>
+    <noscript>
+      <div class="boot-fallback boot-fallback--visible" role="alert">
+        RootAccess requires JavaScript enabled to initialize.
+      </div>
+    </noscript>
+
+    <div id="boot-fallback" class="boot-fallback boot-fallback--visible" role="alert" aria-live="polite">
+      RootAccess is initializing…
+    </div>
+
+    <div id="root" class="app-root" hidden>
+      <div class="desktop-backdrop" aria-hidden="true">
+        <div class="grid-overlay"></div>
+        <div class="scanline-overlay"></div>
+        <div class="noise-overlay"></div>
+      </div>
+
+      <header class="desktop-topbar">
+        <div class="brand">ROOTACCESS</div>
+        <div class="status" id="boot-status">BOOTING…</div>
+      </header>
+
+      <main class="desktop-surface" id="desktop-surface" aria-label="RootAccess desktop shell">
+        <section class="window-layer" id="window-layer" aria-label="window manager layer">
+          <article class="window-shell" id="window-shell">
+            <h1>RootAccess Desktop Shell</h1>
+            <p>Core systems loading. App windows will mount in this layer.</p>
+          </article>
+        </section>
+      </main>
+
+      <aside class="quick-panel" id="quick-panel" aria-label="render settings">
+        <button class="quick-toggle" id="effects-toggle" type="button" aria-pressed="true">
+          Effects: ON
+        </button>
+        <span class="quality-chip" id="quality-chip">Quality: Balanced</span>
+      </aside>
+
+      <footer class="taskbar" aria-label="Taskbar">
+        <button class="taskbar-app" data-app="terminal">Terminal</button>
+        <button class="taskbar-app" data-app="market">Black Market</button>
+        <button class="taskbar-app" data-app="index">Index</button>
+        <button class="taskbar-app" data-app="settings">Settings</button>
+        <button class="taskbar-app" data-app="admin">Admin</button>
+      </footer>
+    </div>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
