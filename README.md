@@ -4,7 +4,7 @@ Cyberpunk desktop hacking game built phase-by-phase on a $0 stack.
 
 ## Stack
 - Vite + React + TypeScript
-- Firebase (Auth, Firestore, Realtime DB)
+- Firebase (Auth, Firestore, Storage)
 - GitHub Pages deployment
 
 ## Local development
@@ -27,18 +27,69 @@ Cyberpunk desktop hacking game built phase-by-phase on a $0 stack.
 npm run build
 ```
 
+### GitHub Pages base-path safety
+This repo uses a relative Vite base by default (`./`) to prevent blank-page deploys on GitHub Pages.
+If you need a custom subpath, set `VITE_BASE_PATH` during build (example: `/Aionous/`).
+Build also creates `dist/404.html` + `dist/.nojekyll` for GitHub Pages SPA fallback hardening.
+
 ## Implemented phases
 - ✅ Phase 1: Foundation
 - ✅ Phase 2: Visual Identity + Asset Pipeline
 - ✅ Phase 3: Boot/Login/Desktop OS shell
 - ✅ Phase 4: Terminal command loop (phish / scan / spoof)
+- ✅ Phase 5: Black Market + Index + Trait variants
+- ✅ Phase 6: Profile + Missions + retention systems
+- ✅ Phase 7: Casino + Flux side-economy
+- ✅ Phase 8: PvP Arena + ranked progression
+- ✅ Phase 9: Blockchain market + defensive upgrades
+- ✅ Phase 10: Ops/Factions/Crafting/Heat growth systems
+- ✅ Phase 11: Cosmetics, Story Seasons, Mentor system
+- ✅ Phase 12: Admin control tower + LiveOps launch hardening
+- ✅ Phase 13: Stability, UX modernization, diagnostics, and settings controls
 
 ## Phase docs
-- `docs/PHASE_01_CHECKLIST.md`
-- `docs/PHASE_02_VISUAL_SYSTEM.md`
-- `docs/PHASE_03_DESKTOP_AUTH.md`
-- `docs/PHASE_04_TERMINAL_CORE.md`
+- `docs/phases/PHASE_01_CHECKLIST.md`
+- `docs/phases/PHASE_02_VISUAL_SYSTEM.md`
+- `docs/phases/PHASE_03_DESKTOP_AUTH.md`
+- `docs/phases/PHASE_04_TERMINAL_CORE.md`
+- `docs/phases/PHASE_05_BLACK_MARKET_INDEX_TRAITS.md`
+- `docs/phases/PHASE_06_PROFILE_MISSIONS_RETENTION.md`
+- `docs/phases/PHASE_07_CASINO_FLUX.md`
+- `docs/phases/PHASE_08_PVP_ARENA.md`
+- `docs/phases/PHASE_09_BLOCKCHAIN_MARKET.md`
+- `docs/phases/PHASE_10_GROWTH_SYSTEMS.md`
+- `docs/phases/PHASE_11_SEASONS_COSMETICS_MENTOR.md`
+- `docs/phases/PHASE_12_ADMIN_LIVEOPS.md`
+- `docs/phases/PHASE_13_STABILITY_GUI_ENHANCEMENTS.md`
+- `docs/phases/PHASE_4_AUTH_SESSION_FIRESTORE_HARDENING.md`
+- `docs/phases/PHASE_2_FIRESTORE_AUTH_AND_IDENTITY.md`
+- `config/FIREBASE_RULES.md`
+- `config/FIREBASE_SETUP.md`
+- `config/FIRESTORE_PLAYER_CARD_SCHEMA.md`
 - `docs/ASSET_PIPELINE.md`
 - `docs/ARCHITECTURE.md`
 - `docs/ECONOMY_BASELINE.md`
 - `docs/ROADMAP.md`
+
+
+## GitHub Pages root-cause checklist (white screen)
+1. In repo **Settings → Pages**, set **Build and deployment** to **GitHub Actions** (not branch/Docs).
+2. Ensure workflow `.github/workflows/deploy-pages.yml` runs successfully and deploys `dist/` artifact.
+3. If previously configured to serve from `/docs` or branch root with markdown index, Pages can show a plain white/blank page instead of app runtime.
+4. After changing Pages source, hard refresh with cache clear (Ctrl/Cmd+Shift+R).
+
+
+## Root-site fallback compatibility
+If GitHub Pages is serving repository source instead of `dist/`, `index.html` now boots from `./assets/app.js` + `./assets/app.css` so users still reach cutscene/login/desktop instead of getting stuck on fallback.
+
+
+## Phase 1 data sync (Firestore player card)
+Signed-in users now bootstrap and sync a `players/{uid}` document (profile, roles, economy, stats, progression, and desktop state).
+
+
+## Phase 2 account isolation + Firestore queue
+Cache now isolates by user ID (`aionous.desktop.v5.<uid>`) and PvP queue uses Firestore (`pvpQueue`) so signed-in data stays account-scoped.
+
+
+## Phase 4 auth/session hardening
+Guest mode removed, login persistence switched to browser-session only, and runtime storage path now uses Firestore-focused flows for signed users.

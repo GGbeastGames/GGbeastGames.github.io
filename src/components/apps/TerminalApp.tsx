@@ -1,32 +1,24 @@
 import { FormEvent, useMemo, useState } from 'react';
-import {
-  CommandId,
-  Cooldowns,
-  PlayerState,
-  TerminalLog,
-  commandSpecs,
-  executeCommand,
-  getCooldownLeft
-} from '../../game/terminal';
+import { Cooldowns, PlayerState, TerminalLog, baseCommandSpecs, executeCommand, getCooldownLeft, getSuccessRate } from '../../game/terminal';
+
+type CommandExecutionMeta = {
+  commandKey: string;
+  payout: number;
+  success: boolean;
+};
 
 type TerminalAppProps = {
   player: PlayerState;
   cooldowns: Cooldowns;
   logs: TerminalLog[];
-  onUpdate: (state: PlayerState, cooldowns: Cooldowns, appendedLogs: TerminalLog[]) => void;
+  ownedCommandKeys: string[];
+  onUpdate: (state: PlayerState, cooldowns: Cooldowns, appendedLogs: TerminalLog[], meta?: CommandExecutionMeta) => void;
   onClearLogs: () => void;
 };
 
-const shellHelp = [
-  'help — list all commands',
-  'status — show wallet, trace, and level',
-  'phish — starter attack (low risk)',
-  'scan — recon attack (mid risk)',
-  'spoof — high-risk attack (high reward)',
-  'clear — clear terminal output'
-];
+const shellHelp = ['help — list all commands', 'status — show wallet, trace, and level', 'clear — clear terminal output'];
 
-export function TerminalApp({ player, cooldowns, logs, onUpdate, onClearLogs }: TerminalAppProps) {
+export function TerminalApp({ player, cooldowns, logs, ownedCommandKeys, onUpdate, onClearLogs }: TerminalAppProps) {
   const [input, setInput] = useState('');
 
   const quickStats = useMemo(
@@ -34,7 +26,7 @@ export function TerminalApp({ player, cooldowns, logs, onUpdate, onClearLogs }: 
       { label: 'Balance', value: `${player.nops} Ø` },
       { label: 'Trace', value: `${player.trace}%` },
       { label: 'Level', value: `${player.level}` },
-      { label: 'XP', value: `${player.xp}` }
+      { label: 'Win', value: `${Math.round(getSuccessRate(player) * 100)}%` }
     ],
     [player]
   );
@@ -56,7 +48,7 @@ export function TerminalApp({ player, cooldowns, logs, onUpdate, onClearLogs }: 
     if (!normalized) return;
 
     if (normalized === 'help') {
-      appendInfo(shellHelp.join(' | '));
+      appendInfo([...shellHelp, ...ownedCommandKeys.map((key) => `${key} — unlocked executable`)].join(' | '));
       setInput('');
       return;
     }
@@ -73,15 +65,18 @@ export function TerminalApp({ player, cooldowns, logs, onUpdate, onClearLogs }: 
       return;
     }
 
-    if (normalized in commandSpecs) {
-      const command = normalized as CommandId;
-      const result = executeCommand(command, player, cooldowns);
-      onUpdate(result.state, result.cooldowns, result.logs);
+    if (ownedCommandKeys.includes(normalized)) {
+      const prevNops = player.nops;
+      const prevSuccess = player.totalSuccess;
+      const result = executeCommand(normalized, player, cooldowns, ownedCommandKeys);
+      const payout = Math.max(0, result.state.nops - prevNops);
+      const success = result.state.totalSuccess > prevSuccess;
+      onUpdate(result.state, result.cooldowns, result.logs, { commandKey: normalized, payout, success });
       setInput('');
       return;
     }
 
-    appendInfo(`Unknown command: ${normalized}. Run 'help' for available commands.`, 'warn');
+    appendInfo(`Unknown or locked command: ${normalized}. Run 'help' for available commands.`, 'warn');
     setInput('');
   }
 
@@ -106,20 +101,23 @@ export function TerminalApp({ player, cooldowns, logs, onUpdate, onClearLogs }: 
 
       <form onSubmit={handleSubmit} className="terminal-input-row">
         <span>&gt;</span>
-        <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="type help, phish, scan, spoof" />
+        <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="type help, phish, scan, spoof, phish-ts" />
         <button type="submit">Run</button>
       </form>
 
       <div className="terminal-command-grid">
-        {(Object.keys(commandSpecs) as CommandId[]).map((id) => {
-          const spec = commandSpecs[id];
-          const cooldownLeftMs = getCooldownLeft(cooldowns[id]);
+        {ownedCommandKeys.map((key) => {
+          const [baseKey, traitSuffix] = key.split('-');
+          const spec = baseCommandSpecs[baseKey as keyof typeof baseCommandSpecs];
+          const cooldownLeftMs = getCooldownLeft(cooldowns[key]);
+          if (!spec) return null;
           return (
-            <article key={id}>
-              <h4>{spec.label}</h4>
+            <article key={key}>
+              <h4>{spec.label + (traitSuffix ? ` (${traitSuffix.toUpperCase()})` : '')}</h4>
               <p>{spec.description}</p>
               <p>
                 Success {Math.round(spec.successRate * 100)}% · Reward {spec.payoutMin}-{spec.payoutMax} Ø
+                {traitSuffix ? ' · Trait boosted' : ''}
               </p>
               <p>Cooldown: {(spec.cooldownMs / 1000).toFixed(0)}s</p>
               <p className={cooldownLeftMs > 0 ? 'warn' : 'ok'}>

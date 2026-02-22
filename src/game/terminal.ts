@@ -1,7 +1,9 @@
-export type CommandId = 'phish' | 'scan' | 'spoof';
+import { getTraitMultiplier } from './progression';
+
+export type BaseCommandId = 'phish' | 'scan' | 'spoof';
 
 export type CommandSpec = {
-  id: CommandId;
+  id: BaseCommandId;
   label: string;
   successRate: number;
   payoutMin: number;
@@ -21,7 +23,7 @@ export type PlayerState = {
   totalSuccess: number;
 };
 
-export type Cooldowns = Record<CommandId, number>;
+export type Cooldowns = Record<string, number>;
 
 export type TerminalLog = {
   id: string;
@@ -36,7 +38,7 @@ export type CommandResult = {
   cooldowns: Cooldowns;
 };
 
-export const commandSpecs: Record<CommandId, CommandSpec> = {
+export const baseCommandSpecs: Record<BaseCommandId, CommandSpec> = {
   phish: {
     id: 'phish',
     label: 'Phish',
@@ -100,7 +102,14 @@ function createLog(text: string, tone: TerminalLog['tone']): TerminalLog {
   };
 }
 
-export function getCooldownLeft(targetTime: number, now = Date.now()): number {
+export function parseCommandKey(commandKey: string): { baseId: BaseCommandId; traitSuffix: string | null } | null {
+  const [baseRaw, traitRaw] = commandKey.split('-');
+  if (!(baseRaw in baseCommandSpecs)) return null;
+  return { baseId: baseRaw as BaseCommandId, traitSuffix: traitRaw ?? null };
+}
+
+export function getCooldownLeft(targetTime: number | undefined, now = Date.now()): number {
+  if (!targetTime) return 0;
   return Math.max(0, targetTime - now);
 }
 
@@ -109,9 +118,33 @@ export function getSuccessRate(player: PlayerState): number {
   return player.totalSuccess / player.totalRuns;
 }
 
-export function executeCommand(command: CommandId, state: PlayerState, cooldowns: Cooldowns, now = Date.now()): CommandResult {
-  const spec = commandSpecs[command];
-  const cooldownLeft = getCooldownLeft(cooldowns[command], now);
+export function executeCommand(
+  commandKey: string,
+  state: PlayerState,
+  cooldowns: Cooldowns,
+  ownedCommandKeys: string[],
+  now = Date.now()
+): CommandResult {
+  const parsed = parseCommandKey(commandKey);
+
+  if (!parsed) {
+    return {
+      logs: [createLog(`Unknown command signature: ${commandKey}`, 'warn')],
+      state,
+      cooldowns
+    };
+  }
+
+  if (!ownedCommandKeys.includes(commandKey)) {
+    return {
+      logs: [createLog(`Command locked: ${commandKey}. Buy it in Black Market first.`, 'warn')],
+      state,
+      cooldowns
+    };
+  }
+
+  const spec = baseCommandSpecs[parsed.baseId];
+  const cooldownLeft = getCooldownLeft(cooldowns[commandKey], now);
 
   if (state.trace >= 100) {
     return {
@@ -123,12 +156,14 @@ export function executeCommand(command: CommandId, state: PlayerState, cooldowns
 
   if (cooldownLeft > 0) {
     return {
-      logs: [createLog(`${spec.id} cooling down: ${(cooldownLeft / 1000).toFixed(1)}s remaining`, 'warn')],
+      logs: [createLog(`${commandKey} cooling down: ${(cooldownLeft / 1000).toFixed(1)}s remaining`, 'warn')],
       state,
       cooldowns
     };
   }
 
+  const trait = parsed.traitSuffix === 'ts' ? 'spring' : null;
+  const payoutMultiplier = getTraitMultiplier(trait);
   const roll = Math.random();
   const success = roll <= spec.successRate;
   const nextState: PlayerState = {
@@ -138,17 +173,21 @@ export function executeCommand(command: CommandId, state: PlayerState, cooldowns
 
   const nextCooldowns: Cooldowns = {
     ...cooldowns,
-    [command]: now + spec.cooldownMs
+    [commandKey]: now + spec.cooldownMs
   };
 
-  const logs: TerminalLog[] = [createLog(`> ${spec.id} --exec`, 'info')];
+  const logs: TerminalLog[] = [createLog(`> ${commandKey} --exec`, 'info')];
 
   if (success) {
     const payout = Math.floor(Math.random() * (spec.payoutMax - spec.payoutMin + 1)) + spec.payoutMin;
-    nextState.nops += payout;
+    const boostedPayout = payout * payoutMultiplier;
+    nextState.nops += boostedPayout;
     nextState.xp += spec.xpGain;
     nextState.totalSuccess += 1;
-    logs.push(createLog(`ACCESS GRANTED // +${payout} Ø NOP`, 'success'));
+    logs.push(createLog(`ACCESS GRANTED // +${boostedPayout} Ø NOP`, 'success'));
+    if (trait) {
+      logs.push(createLog(`TRAIT BOOST ACTIVE // ${trait.toUpperCase()} x${payoutMultiplier}`, 'success'));
+    }
     logs.push(createLog(`XP +${spec.xpGain}`, 'success'));
   } else {
     nextState.trace = Math.min(100, nextState.trace + spec.failTrace);

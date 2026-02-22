@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "assets:manifest": "node scripts/generate-asset-manifest.mjs"
+    "assets:manifest": "node scripts/generate-asset-manifest.mjs",
+    "postbuild": "node scripts/postbuild-gh-pages.mjs",
+    "bundle:root": "node scripts/sync-root-bundle.mjs"
   },
   "keywords": [],
   "author": "",
