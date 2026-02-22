@@ -1457,7 +1457,7 @@ function initAuthBridge() {
   })
     .then((bridge) => {
       authBridge = bridge;
-      logDiagnostic('log', 'firebase auth bridge initialized', { mode: bridge.mode });
+      logDiagnostic('log', 'firebase auth bridge initialized', { mode: bridge.mode, reason: bridge.reason || '' });
       applyRoleAccessToUi();
     })
     .catch((error) => {
@@ -1465,7 +1465,7 @@ function initAuthBridge() {
       authBridge = {
         mode: 'offline',
         authenticate: async () => ({ ok: false, message: 'Authentication unavailable. Check network/CSP and Firebase Auth provider settings.' }),
-        register: async () => ({ ok: false, message: 'Signup unavailable. Enable Email/Password in Firebase and verify deployed config.' }),
+        register: async () => ({ ok: false, message: 'Signup unavailable. Check network/CSP, Firebase provider setup, and authorized domains.' }),
       };
       if (bootStatus && !windowState.desktopInitialized) bootStatus.textContent = 'AUTH OFFLINE';
     });

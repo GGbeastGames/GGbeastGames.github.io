@@ -9,6 +9,9 @@ const FIREBASE_CONFIG = {
   measurementId: 'G-WGQPLVYHJX',
 };
 
+const FIREBASE_SDK_TIMEOUT_MS = 20000;
+const FIREBASE_SDK_LOAD_RETRIES = 2;
+
 function withTimeout(promise, ms, timeoutMessage) {
   return Promise.race([
     promise,
@@ -23,16 +26,34 @@ async function getFirebaseApp() {
   return getApps().length ? getApps()[0] : initializeApp(FIREBASE_CONFIG);
 }
 
+async function loadFirebaseModule(moduleName) {
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= FIREBASE_SDK_LOAD_RETRIES; attempt += 1) {
+    try {
+      const result = await withTimeout(
+        import(`https://www.gstatic.com/firebasejs/10.13.1/${moduleName}.js`),
+        FIREBASE_SDK_TIMEOUT_MS,
+        `${moduleName} load timeout (${attempt}/${FIREBASE_SDK_LOAD_RETRIES})`
+      );
+      return result;
+    } catch (error) {
+      lastError = error;
+      if (attempt < FIREBASE_SDK_LOAD_RETRIES) {
+        await new Promise((resolve) => setTimeout(resolve, 600 * attempt));
+      }
+    }
+  }
+
+  throw lastError || new Error(`${moduleName} failed to load`);
+}
+
 export async function initFirebaseAuthBridge({ onStatus = () => {} } = {}) {
   onStatus('loading');
 
   try {
-    const [app, authMod] = await withTimeout(
-      Promise.all([getFirebaseApp(), import('https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js')]),
-      7000,
-      'firebase sdk load timeout'
-    );
-
+    const app = await getFirebaseApp();
+    const authMod = await loadFirebaseModule('firebase-auth');
     const auth = authMod.getAuth(app);
     onStatus('online');
 
@@ -40,6 +61,7 @@ export async function initFirebaseAuthBridge({ onStatus = () => {} } = {}) {
       mode: 'online',
       auth,
       sdk: authMod,
+      reason: '',
       async authenticate(neuralId, decryptKey) {
         if (!neuralId.includes('@')) {
           return {
@@ -95,21 +117,24 @@ export async function initFirebaseAuthBridge({ onStatus = () => {} } = {}) {
     };
   } catch (error) {
     onStatus('offline');
+    const reason = String(error?.message || error || 'unknown auth bridge init error');
+
     return {
       mode: 'offline',
       error,
+      reason,
       async authenticate() {
         return {
           ok: false,
           message:
-            'Authentication service is unavailable right now. Check network/Firebase config and try again.',
+            `Authentication service is unavailable right now. Check network/Firebase config and try again. (${reason})`,
         };
       },
       async register() {
         return {
           ok: false,
           message:
-            'Signup is unavailable right now. Check network/Firebase config and try again.',
+            `Signup is unavailable right now. Check network/Firebase config and try again. (${reason})`,
         };
       },
     };
@@ -125,11 +150,8 @@ export async function initFirebaseDataBridge({ uid, onStatus = () => {} } = {}) 
   }
 
   try {
-    const [app, firestoreMod] = await withTimeout(
-      Promise.all([getFirebaseApp(), import('https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js')]),
-      7000,
-      'firebase firestore sdk load timeout'
-    );
+    const app = await getFirebaseApp();
+    const firestoreMod = await loadFirebaseModule('firebase-firestore');
 
     const db = firestoreMod.getFirestore(app);
     const playerRef = firestoreMod.doc(db, 'players', uid);
@@ -293,7 +315,7 @@ export async function initFirebaseDataBridge({ uid, onStatus = () => {} } = {}) 
     };
   } catch (error) {
     onStatus('offline');
-    return offlineDataBridge('Firestore unavailable. Using local state only.');
+    return offlineDataBridge(`Firestore unavailable. Using local state only. (${String(error?.message || error)})`);
   }
 }
 
@@ -344,6 +366,7 @@ function mapFirebaseAuthError(error) {
     'auth/weak-password': 'Decrypt-Key is too weak. Use at least 6 characters.',
     'auth/operation-not-allowed': 'Email/Password auth is disabled. Enable it in Firebase Console > Authentication > Sign-in method.',
     'auth/configuration-not-found': 'Firebase Auth is not fully configured. Enable Email/Password sign-in in Firebase Console > Authentication > Sign-in method, and verify the project matches this app config.',
+    'auth/unauthorized-domain': 'This domain is not authorized in Firebase Auth. Add it under Authentication > Settings > Authorized domains.',
   };
 
   return mapping[code] || `Authentication failed (${code}).`;

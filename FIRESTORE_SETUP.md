@@ -25,3 +25,8 @@ Without this, signup/login may return `auth/configuration-not-found` or appear u
 - Player state: `players/{uid}/meta/gameState`
 - Roles: `players/{uid}/meta/roles`
 - Audit logs: `admin/auditLogs/entries/{logId}`
+
+
+## Authorized domains (required for web auth)
+In Firebase Console → Authentication → Settings → Authorized domains, add your hosting domain (for example `ggbeastgames.github.io`).
+If this is missing, auth may fail with `auth/unauthorized-domain`.
