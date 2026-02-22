@@ -1,5 +1,33 @@
 import { COMMAND_CATALOG, SHOP_ITEMS, TRAIT_ROLL_CHANCE, TRAIT_SUFFIX, TraitId } from './commandCatalog';
 
+export type MarketSymbol = 'VALK' | 'GLYPH' | 'ZERO' | 'PULSE' | 'TITAN';
+
+export interface StockQuote {
+  symbol: MarketSymbol;
+  price: number;
+  changePct: number;
+  updatedAtMs: number;
+}
+
+export interface HoldingHistoryEntry {
+  id: string;
+  symbol: MarketSymbol;
+  shares: number;
+  price: number;
+  side: 'buy' | 'sell';
+  createdAtMs: number;
+}
+
+export interface MarketState {
+  listingsRefreshAtMs: number;
+  listingsWindowEndsAtMs: number;
+  quotes: StockQuote[];
+  holdings: Record<MarketSymbol, number>;
+  ownershipHistory: HoldingHistoryEntry[];
+  holdingsValue: number;
+  totalValuation: number;
+}
+
 export interface CasinoTelemetryEntry {
   id: string;
   gameId: string;
@@ -43,6 +71,7 @@ export interface PlayerProgress {
   cooldowns: Record<string, number>;
   badges: string[];
   casino: CasinoProfile;
+  market: MarketState;
 }
 
 const STORAGE_KEY = 'aionous-progress-v3';
@@ -71,6 +100,15 @@ const baseline: PlayerProgress = {
   cooldowns: {},
   badges: [],
   casino: baselineCasino,
+  market: {
+    listingsRefreshAtMs: 0,
+    listingsWindowEndsAtMs: 0,
+    quotes: [],
+    holdings: { VALK: 0, GLYPH: 0, ZERO: 0, PULSE: 0, TITAN: 0 },
+    ownershipHistory: [],
+    holdingsValue: 0,
+    totalValuation: 220,
+  },
 };
 
 export const loadProgress = (): PlayerProgress => {
@@ -99,6 +137,16 @@ export const loadProgress = (): PlayerProgress => {
         ...baselineCasino,
         ...(parsed.casino ?? {}),
         telemetry: parsed.casino?.telemetry ?? baselineCasino.telemetry,
+      },
+      market: {
+        ...baseline.market,
+        ...(parsed.market ?? {}),
+        holdings: {
+          ...baseline.market.holdings,
+          ...(parsed.market?.holdings ?? {}),
+        },
+        ownershipHistory: parsed.market?.ownershipHistory ?? baseline.market.ownershipHistory,
+        quotes: parsed.market?.quotes ?? baseline.market.quotes,
       },
     };
   } catch {

@@ -3,10 +3,18 @@ import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { useResponsiveScale } from '../hooks/useResponsiveScale';
 import { useSfx } from '../hooks/useSfx';
 import { toThemeCssVariables, webglThemeSkin } from '../theme/webglTheme';
-import { CASINO_ANTI_ABUSE, CASINO_GAMES, COMMAND_CATALOG, LUCK_CHARM_ITEMS, SHOP_ITEMS } from '../../game/commandCatalog';
+import {
+  CASINO_ANTI_ABUSE,
+  CASINO_GAMES,
+  COMMAND_CATALOG,
+  LUCK_CHARM_ITEMS,
+  MARKET_TICKERS,
+  SHOP_ITEMS,
+} from '../../game/commandCatalog';
 import {
   canUseCommand,
   loadProgress,
+  MarketSymbol,
   persistProgress,
   PlayerProgress,
   rollTrait,
@@ -16,6 +24,7 @@ import { CommandOutcome, TerminalConsole } from './TerminalConsole';
 import { IndexApp } from './apps/IndexApp';
 import { BlackMarketApp } from './apps/BlackMarketApp';
 import { CasinoApp } from './apps/CasinoApp';
+import { StockMarketApp } from './apps/StockMarketApp';
 
 interface DesktopEnvironmentProps {
   loginWindow: ReactNode;
@@ -44,6 +53,36 @@ export const DesktopEnvironment = ({ loginWindow }: DesktopEnvironmentProps) => 
   const [counter, setCounter] = useState(5);
   const [progress, setProgress] = useState<PlayerProgress>(() => loadProgress());
   const [windows, setWindows] = useState<WindowState[]>([]);
+
+  const refreshMarketListings = (current: PlayerProgress): PlayerProgress => {
+    const now = Date.now();
+    const baseWindowMs = 60 * 60 * 1000;
+    const quotes = MARKET_TICKERS.map((ticker) => {
+      const prior = current.market.quotes.find((quote) => quote.symbol === ticker.symbol)?.price ?? ticker.basePrice;
+      const drift = (Math.random() * 2 - 1) * ticker.volatilityPct;
+      const nextPrice = Math.max(3, Math.round(prior * (1 + drift / 100)));
+      return {
+        symbol: ticker.symbol,
+        price: nextPrice,
+        changePct: drift,
+        updatedAtMs: now,
+      };
+    });
+
+    const holdingsValue = quotes.reduce((sum, quote) => sum + quote.price * (current.market.holdings[quote.symbol] ?? 0), 0);
+
+    return {
+      ...current,
+      market: {
+        ...current.market,
+        quotes,
+        listingsRefreshAtMs: now + baseWindowMs,
+        listingsWindowEndsAtMs: now + 15 * 60 * 1000,
+        holdingsValue,
+        totalValuation: current.wallet + holdingsValue,
+      },
+    };
+  };
 
   const buyShopItem = (sku: string) => {
     const item = SHOP_ITEMS.find((candidate) => candidate.sku === sku && !candidate.removedFromShop);
@@ -117,6 +156,52 @@ export const DesktopEnvironment = ({ loginWindow }: DesktopEnvironmentProps) => 
             winBoostPct: charm.winBoostPct,
             usesRemaining: charm.maxUsesPerPurchase,
           },
+        },
+      };
+    });
+  };
+
+  const buyShares = (symbol: MarketSymbol, shares: number) => {
+    setProgress((current) => {
+      const quote = current.market.quotes.find((entry) => entry.symbol === symbol);
+      const now = Date.now();
+      if (!quote || now > current.market.listingsWindowEndsAtMs) {
+        return current;
+      }
+
+      const cost = quote.price * shares;
+      if (shares < 1 || current.wallet < cost) {
+        return current;
+      }
+
+      const nextHoldings = {
+        ...current.market.holdings,
+        [symbol]: (current.market.holdings[symbol] ?? 0) + shares,
+      };
+
+      const ownershipEntry = {
+        id: crypto.randomUUID(),
+        symbol,
+        shares,
+        price: quote.price,
+        side: 'buy' as const,
+        createdAtMs: now,
+      };
+
+      const holdingsValue = current.market.quotes.reduce(
+        (sum, liveQuote) => sum + liveQuote.price * (nextHoldings[liveQuote.symbol] ?? 0),
+        0,
+      );
+
+      return {
+        ...current,
+        wallet: current.wallet - cost,
+        market: {
+          ...current.market,
+          holdings: nextHoldings,
+          ownershipHistory: [ownershipEntry, ...current.market.ownershipHistory].slice(0, 100),
+          holdingsValue,
+          totalValuation: current.wallet - cost + holdingsValue,
         },
       };
     });
@@ -208,7 +293,7 @@ export const DesktopEnvironment = ({ loginWindow }: DesktopEnvironmentProps) => 
 
   useEffect(() => {
     setWindows((prev) => {
-      const withoutDynamic = prev.filter((windowState) => !['auth', 'index', 'market', 'casino'].includes(windowState.id));
+      const withoutDynamic = prev.filter((windowState) => !['auth', 'index', 'market', 'casino', 'stocks'].includes(windowState.id));
       return [
         ...withoutDynamic,
         {
@@ -261,11 +346,45 @@ export const DesktopEnvironment = ({ loginWindow }: DesktopEnvironmentProps) => 
           z: 5,
           content: <CasinoApp progress={progress} onPlay={playCasinoGame} />,
         },
+        {
+          id: 'stocks',
+          title: 'Stock Exchange',
+          x: 1040,
+          y: 120,
+          width: 430,
+          height: 420,
+          minimized: false,
+          maximized: false,
+          z: 6,
+          content: (
+            <StockMarketApp
+              wallet={progress.wallet}
+              market={progress.market}
+              blockToolsUnlocked={progress.entitlements.includes('software_block_manager')}
+              onBuyShares={buyShares}
+            />
+          ),
+        },
       ];
     });
 
     persistProgress(progress);
   }, [loginWindow, progress]);
+
+  useEffect(() => {
+    setProgress((current) => (current.market.quotes.length ? current : refreshMarketListings(current)));
+    const interval = window.setInterval(() => {
+      setProgress((current) => {
+        if (Date.now() < current.market.listingsRefreshAtMs) {
+          return current;
+        }
+
+        return refreshMarketListings(current);
+      });
+    }, 30_000);
+
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const debugCases = [
@@ -275,7 +394,15 @@ export const DesktopEnvironment = ({ loginWindow }: DesktopEnvironmentProps) => 
       '4) Cooldown/session-loss/consecutive limits block spam loops.',
       '5) Badge + Flux rewards trigger once per milestone.',
     ];
+    const marketDebugCases = [
+      '1) Hourly refresh rolls new prices from prior close.',
+      '2) Listing window blocks purchases outside active interval.',
+      '3) Share purchases never exceed wallet balance.',
+      '4) Ownership history remains in time order and bounded length.',
+      '5) Holdings valuation and net valuation stay synchronized.',
+    ];
     console.debug('Casino 5-step debug/clean loop', debugCases);
+    console.debug('Market 5-step debug/clean loop', marketDebugCases);
   }, []);
 
   const focusWindow = (id: string) => {

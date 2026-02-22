@@ -1,4 +1,5 @@
 import { onCall, HttpsError, CallableRequest } from 'firebase-functions/v2/https';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue, Timestamp, Transaction } from 'firebase-admin/firestore';
 
@@ -30,6 +31,8 @@ const COMMANDS: Record<string, CommandDefinition> = {
 const MAX_LEVEL = 500;
 const XP_PER_LEVEL = 100;
 const REQUEST_SPAM_WINDOW_MS = 1_500;
+const MARKET_SYMBOLS = ['VALK', 'GLYPH', 'ZERO', 'PULSE', 'TITAN'] as const;
+type MarketSymbol = (typeof MARKET_SYMBOLS)[number];
 
 function assertAuthed(auth: { uid: string } | null | undefined): asserts auth is { uid: string } {
   if (!auth) {
@@ -333,6 +336,100 @@ export const publishGlobalEvent = onCall(async (request: CallableRequest<Record<
     durationMinutes,
     actorUid: request.auth?.uid,
     createdAt: FieldValue.serverTimestamp(),
+  });
+
+  return { ok: true };
+});
+
+export const refreshMarketListings = onSchedule('every 60 minutes', async () => {
+  const now = Timestamp.now();
+
+  const marketRef = db.collection('market').doc('state');
+  const snap = await marketRef.get();
+  const previousQuotes = (snap.get('quotes') ?? {}) as Record<string, number>;
+
+  const quotes = Object.fromEntries(
+    MARKET_SYMBOLS.map((symbol) => {
+      const previous = Number(previousQuotes[symbol] ?? 30);
+      const drift = 1 + (Math.random() * 0.24 - 0.12);
+      const next = Math.max(3, Math.round(previous * drift));
+      return [symbol, next];
+    }),
+  );
+
+  await marketRef.set(
+    {
+      quotes,
+      listingsRefreshAt: now,
+      listingsWindowEndsAt: Timestamp.fromMillis(now.toMillis() + 15 * 60_000),
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+});
+
+export const purchaseShares = onCall(async (request: CallableRequest<Record<string, unknown>>) => {
+  assertAuthed(request.auth);
+
+  const symbol = String(request.data?.symbol ?? '').trim().toUpperCase() as MarketSymbol;
+  const shares = Number(request.data?.shares ?? 0);
+
+  if (!MARKET_SYMBOLS.includes(symbol) || !Number.isInteger(shares) || shares <= 0) {
+    throw new HttpsError('invalid-argument', 'Valid symbol and positive integer shares are required.');
+  }
+
+  const userRef = db.collection('users').doc(request.auth.uid);
+  const holdingsRef = userRef.collection('holdings').doc(symbol);
+  const marketRef = db.collection('market').doc('state');
+
+  await db.runTransaction(async (tx) => {
+    const [userSnap, marketSnap] = await Promise.all([tx.get(userRef), tx.get(marketRef)]);
+    if (!userSnap.exists) {
+      throw new HttpsError('not-found', 'User profile not found.');
+    }
+
+    const quotes = (marketSnap.get('quotes') ?? {}) as Record<string, number>;
+    const listingEndsRaw = marketSnap.get('listingsWindowEndsAt');
+    const listingEndsAt = listingEndsRaw instanceof Timestamp ? listingEndsRaw.toMillis() : 0;
+    const now = Date.now();
+    if (listingEndsAt > 0 && now > listingEndsAt) {
+      throw new HttpsError('failed-precondition', 'Listing window closed.');
+    }
+
+    const price = Number(quotes[symbol] ?? 0);
+    if (price <= 0) {
+      throw new HttpsError('failed-precondition', 'Quote unavailable.');
+    }
+
+    const cost = price * shares;
+    const wallet = Number(userSnap.get('wallet') ?? 0);
+    if (wallet < cost) {
+      throw new HttpsError('failed-precondition', 'Insufficient funds.');
+    }
+
+    tx.update(userRef, {
+      wallet: wallet - cost,
+      netWorth: Number(userSnap.get('bank') ?? 0) + (wallet - cost),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    tx.set(
+      holdingsRef,
+      {
+        symbol,
+        shares: FieldValue.increment(shares),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+
+    tx.create(userRef.collection('holdingsHistory').doc(), {
+      symbol,
+      shares,
+      price,
+      side: 'buy',
+      createdAt: FieldValue.serverTimestamp(),
+    });
   });
 
   return { ok: true };
