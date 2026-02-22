@@ -760,3 +760,90 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+.admin-app {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.admin-role {
+  margin: 0;
+  color: var(--accent-secondary);
+  font-size: 0.9rem;
+}
+
+.admin-message {
+  margin: 0;
+  color: #ffe3b6;
+  min-height: 1.1rem;
+}
+
+.admin-card {
+  border: 1px solid rgba(16, 234, 176, 0.2);
+  border-radius: 8px;
+  background: rgba(5, 18, 22, 0.88);
+  padding: 0.5rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.admin-card h3 {
+  margin: 0;
+}
+
+.admin-card label {
+  display: grid;
+  gap: 0.2rem;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.admin-card input[type="text"] {
+  border: 1px solid rgba(16, 234, 176, 0.3);
+  border-radius: 8px;
+  background: rgba(4, 17, 21, 0.95);
+  color: var(--text-primary);
+  padding: 0.45rem 0.5rem;
+}
+
+.admin-actions-row {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.admin-actions-row button,
+.admin-toggle-grid input + span,
+.admin-toggle-grid label {
+  font-size: 0.86rem;
+}
+
+.admin-actions-row button {
+  border: 1px solid rgba(16, 234, 176, 0.35);
+  border-radius: 8px;
+  background: var(--state-normal);
+  color: var(--text-primary);
+  cursor: pointer;
+  padding: 0.35rem 0.6rem;
+}
+
+.admin-actions-row button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.admin-toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem 0.65rem;
+}
+
+.admin-list {
+  margin: 0;
+  padding-left: 1rem;
+  display: grid;
+  gap: 0.2rem;
+  color: var(--text-secondary);
+  max-height: 120px;
+  overflow: auto;
+}

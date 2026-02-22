@@ -1,11 +1,12 @@
 const FIREBASE_CONFIG = {
-  apiKey: 'AIzaSyDOrfbRuZHuGMa8MnVnqVKxheLHQwTVi2o',
-  authDomain: 'rootaccess-1b39e.firebaseapp.com',
-  projectId: 'rootaccess-1b39e',
-  storageBucket: 'rootaccess-1b39e.firebasestorage.app',
-  messagingSenderId: '1089338439121',
-  appId: '1:1089338439121:web:1e26fc0a5e5abb02221cf0',
-  measurementId: 'G-WGQPLVYHJX',
+  apiKey: 'AIzaSyDYCVuqgeOapoL-gxIvjW_UG6WSV4GZyqo',
+  authDomain: 'terminal-game-19338.firebaseapp.com',
+  databaseURL: 'https://terminal-game-19338-default-rtdb.firebaseio.com',
+  projectId: 'terminal-game-19338',
+  storageBucket: 'terminal-game-19338.firebasestorage.app',
+  messagingSenderId: '202798356459',
+  appId: '1:202798356459:web:96b9dd3669a10c8c7debae',
+  measurementId: 'G-S3CS8SXKXE',
 };
 
 function withTimeout(promise, ms, timeoutMessage) {
@@ -132,6 +133,8 @@ export async function initFirebaseDataBridge({ uid, onStatus = () => {} } = {}) 
 
     const db = firestoreMod.getFirestore(app);
     const stateRef = firestoreMod.doc(db, 'users', uid, 'meta', 'gameState');
+    const roleRef = firestoreMod.doc(db, 'users', uid, 'meta', 'roles');
+    const auditLogsRef = firestoreMod.collection(db, 'admin', 'auditLogs', 'entries');
 
     onStatus('online');
 
@@ -162,6 +165,48 @@ export async function initFirebaseDataBridge({ uid, onStatus = () => {} } = {}) 
           return { ok: false, message: `save failed: ${String(error)}` };
         }
       },
+      async loadRoles() {
+        try {
+          const snapshot = await firestoreMod.getDoc(roleRef);
+          if (!snapshot.exists()) {
+            return {
+              ok: true,
+              roles: { isAdmin: false, isModerator: false, isEconomyOps: false },
+            };
+          }
+          return { ok: true, roles: snapshot.data() };
+        } catch (error) {
+          return { ok: false, message: `roles load failed: ${String(error)}` };
+        }
+      },
+      async ensureRolesDoc() {
+        try {
+          await firestoreMod.setDoc(
+            roleRef,
+            {
+              isAdmin: false,
+              isModerator: false,
+              isEconomyOps: false,
+              updatedAt: Date.now(),
+            },
+            { merge: true }
+          );
+          return { ok: true };
+        } catch (error) {
+          return { ok: false, message: `roles init failed: ${String(error)}` };
+        }
+      },
+      async appendAuditLog(entry) {
+        try {
+          await firestoreMod.addDoc(auditLogsRef, {
+            ...entry,
+            serverTs: Date.now(),
+          });
+          return { ok: true };
+        } catch (error) {
+          return { ok: false, message: `audit log failed: ${String(error)}` };
+        }
+      },
     };
   } catch (error) {
     onStatus('offline');
@@ -176,6 +221,18 @@ function offlineDataBridge(message) {
       return { ok: false, message };
     },
     async saveState() {
+      return { ok: false, message };
+    },
+    async loadRoles() {
+      return {
+        ok: true,
+        roles: { isAdmin: false, isModerator: false, isEconomyOps: false },
+      };
+    },
+    async ensureRolesDoc() {
+      return { ok: false, message };
+    },
+    async appendAuditLog() {
       return { ok: false, message };
     },
   };

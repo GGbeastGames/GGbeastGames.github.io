@@ -75,6 +75,28 @@ const marketState = {
   tickerHandle: null,
 };
 
+const roleState = {
+  isAdmin: false,
+  isModerator: false,
+  isEconomyOps: false,
+};
+
+const adminState = {
+  featureToggles: {
+    chatEnabled: true,
+    pvpEnabled: true,
+    casinoEnabled: true,
+    marketEnabled: true,
+  },
+  moderationCases: [],
+  antiCheatQueue: [
+    { uid: 'suspect_8841', reason: 'impossible earnings spike', severity: 'high' },
+    { uid: 'suspect_1202', reason: 'rapid-fire auth failures', severity: 'medium' },
+  ],
+  auditLogs: [],
+};
+
+
 function logDiagnostic(level, message, context = {}) {
   const payload = {
     timestamp: new Date().toISOString(),
@@ -460,6 +482,182 @@ function startMarketTicker() {
   });
 }
 
+function canAccessAdminPanel() {
+  return Boolean(roleState.isAdmin || roleState.isModerator || roleState.isEconomyOps);
+}
+
+function applyRoleAccessToUi() {
+  const adminButton = document.querySelector('.taskbar-app[data-app="admin"]');
+  if (adminButton) {
+    adminButton.hidden = !canAccessAdminPanel();
+    adminButton.setAttribute('aria-hidden', adminButton.hidden ? 'true' : 'false');
+  }
+
+  if (!canAccessAdminPanel()) {
+    closeWindow('admin');
+  }
+}
+
+async function loadRoleStateFromCloud() {
+  if (!dataBridge || typeof dataBridge.loadRoles !== 'function') {
+    applyRoleAccessToUi();
+    return;
+  }
+
+  const result = await dataBridge.loadRoles();
+  if (!result?.ok || !result.roles) {
+    applyRoleAccessToUi();
+    return;
+  }
+
+  roleState.isAdmin = Boolean(result.roles.isAdmin);
+  roleState.isModerator = Boolean(result.roles.isModerator);
+  roleState.isEconomyOps = Boolean(result.roles.isEconomyOps);
+  applyRoleAccessToUi();
+}
+
+async function appendAdminAuditLog(action, details = {}) {
+  const entry = {
+    action,
+    details,
+    adminUid: currentUser?.uid || 'unknown',
+    adminEmail: currentUser?.email || 'unknown',
+    clientTs: Date.now(),
+  };
+
+  adminState.auditLogs.unshift(entry);
+  adminState.auditLogs = adminState.auditLogs.slice(0, 100);
+
+  if (dataBridge && typeof dataBridge.appendAuditLog === 'function') {
+    await dataBridge.appendAuditLog(entry);
+  }
+}
+
+function createAdminWindowView() {
+  const wrapper = document.createElement('section');
+  wrapper.className = 'app-window-body admin-app';
+
+  const title = document.createElement('h2');
+  title.textContent = 'Admin Operations Console';
+
+  const roleTag = document.createElement('p');
+  roleTag.className = 'admin-role';
+
+  const message = document.createElement('p');
+  message.className = 'admin-message';
+
+  const moderation = document.createElement('section');
+  moderation.className = 'admin-card';
+  moderation.innerHTML = `
+    <h3>Player Moderation</h3>
+    <label>Target UID <input data-field="uid" type="text" placeholder="player uid" /></label>
+    <label>Reason <input data-field="reason" type="text" placeholder="required reason" /></label>
+    <div class="admin-actions-row">
+      <button type="button" data-mod-action="warn">Warn</button>
+      <button type="button" data-mod-action="temp-ban">Temp Ban</button>
+      <button type="button" data-mod-action="perma-ban">Perma Ban</button>
+    </div>
+  `;
+
+  const toggles = document.createElement('section');
+  toggles.className = 'admin-card';
+  toggles.innerHTML = `
+    <h3>Emergency Feature Toggles</h3>
+    <div class="admin-toggle-grid">
+      <label><input type="checkbox" data-toggle="chatEnabled" /> Chat Enabled</label>
+      <label><input type="checkbox" data-toggle="pvpEnabled" /> PvP Enabled</label>
+      <label><input type="checkbox" data-toggle="casinoEnabled" /> Casino Enabled</label>
+      <label><input type="checkbox" data-toggle="marketEnabled" /> Market Enabled</label>
+    </div>
+  `;
+
+  const antiCheat = document.createElement('section');
+  antiCheat.className = 'admin-card';
+  antiCheat.innerHTML = '<h3>Anti-Cheat Review Queue</h3>';
+  const antiCheatList = document.createElement('ul');
+  antiCheatList.className = 'admin-list';
+
+  const audit = document.createElement('section');
+  audit.className = 'admin-card';
+  audit.innerHTML = '<h3>Audit Logs</h3>';
+  const auditList = document.createElement('ul');
+  auditList.className = 'admin-list';
+
+  const render = () => {
+    roleTag.textContent = `Role scope: admin=${roleState.isAdmin} moderator=${roleState.isModerator} economyOps=${roleState.isEconomyOps}`;
+
+    toggles.querySelectorAll('[data-toggle]').forEach((toggle) => {
+      const key = toggle.getAttribute('data-toggle');
+      toggle.checked = Boolean(adminState.featureToggles[key]);
+      toggle.disabled = !roleState.isAdmin && !roleState.isEconomyOps;
+    });
+
+    moderation.querySelectorAll('button[data-mod-action]').forEach((btn) => {
+      btn.disabled = !roleState.isAdmin && !roleState.isModerator;
+    });
+
+    antiCheatList.innerHTML = '';
+    adminState.antiCheatQueue.forEach((item) => {
+      const li = document.createElement('li');
+      li.textContent = `${item.uid} · ${item.reason} · ${item.severity}`;
+      antiCheatList.appendChild(li);
+    });
+
+    auditList.innerHTML = '';
+    const logs = adminState.auditLogs.length ? adminState.auditLogs : [{ action: 'none', details: { msg: 'No audit entries yet' }, clientTs: Date.now() }];
+    logs.slice(0, 20).forEach((entry) => {
+      const li = document.createElement('li');
+      li.textContent = `${new Date(entry.clientTs).toLocaleTimeString()} · ${entry.action} · ${JSON.stringify(entry.details)}`;
+      auditList.appendChild(li);
+    });
+  };
+
+  moderation.addEventListener('click', async (event) => {
+    const btn = event.target.closest('button[data-mod-action]');
+    if (!btn) return;
+
+    const uid = moderation.querySelector('[data-field="uid"]').value.trim();
+    const reason = moderation.querySelector('[data-field="reason"]').value.trim();
+    const action = btn.getAttribute('data-mod-action');
+
+    if (!uid || !reason) {
+      message.textContent = 'Moderation actions require target UID and reason.';
+      return;
+    }
+
+    adminState.moderationCases.unshift({ uid, reason, action, ts: Date.now() });
+    await appendAdminAuditLog(`moderation:${action}`, { uid, reason });
+    message.textContent = `Moderation action queued: ${action} on ${uid}.`;
+    render();
+  });
+
+  toggles.addEventListener('change', async (event) => {
+    const input = event.target.closest('[data-toggle]');
+    if (!input) return;
+    if (!roleState.isAdmin && !roleState.isEconomyOps) {
+      message.textContent = 'Insufficient role privileges for feature toggles.';
+      render();
+      return;
+    }
+
+    const key = input.getAttribute('data-toggle');
+    const approved = window.confirm(`Confirm feature toggle change for ${key}?`);
+    if (!approved) {
+      render();
+      return;
+    }
+
+    adminState.featureToggles[key] = input.checked;
+    await appendAdminAuditLog('feature-toggle', { key, enabled: input.checked });
+    message.textContent = `Feature toggle updated: ${key}=${input.checked}`;
+    render();
+  });
+
+  render();
+  wrapper.append(title, roleTag, message, moderation, toggles, antiCheat, antiCheatList, audit, auditList);
+  return wrapper;
+}
+
 function createLogLine(text, level = "normal") {
   const line = document.createElement("div");
   line.className = `terminal-log terminal-log--${level}`;
@@ -725,6 +923,7 @@ function renderWindowBody(appId) {
   if (appId === "market") return createBlackMarketWindowView();
   if (appId === "index") return createIndexWindowView();
   if (appId === "blockchain") return createBlockchainWindowView();
+  if (appId === "admin") return createAdminWindowView();
 
   const container = document.createElement("div");
   container.className = "app-window-body";
@@ -905,6 +1104,11 @@ function attachResizeHandlers(win, element) {
 }
 
 function createWindow(appId, presetRect = null) {
+  if (appId === "admin" && !canAccessAdminPanel()) {
+    logDiagnostic("warn", "blocked unauthorized admin panel open attempt", { appId, uid: currentUser?.uid || null });
+    return;
+  }
+
   if (windowState.windows.has(appId)) {
     const existing = windowState.windows.get(appId);
     existing.minimized = false;
@@ -991,6 +1195,7 @@ function initTaskbarAndWindows() {
     button.addEventListener("click", () => {
       const appId = button.dataset.app;
       if (!appId) return;
+      if (appId === "admin" && !canAccessAdminPanel()) return;
 
       const existing = windowState.windows.get(appId);
       if (existing) {
@@ -1035,6 +1240,7 @@ function initAuthBridge() {
   }).then((bridge) => {
     authBridge = bridge;
     logDiagnostic('log', 'firebase auth bridge initialized', { mode: bridge.mode });
+    applyRoleAccessToUi();
   });
 }
 
@@ -1167,6 +1373,10 @@ function initLoginFlow() {
     });
 
     await hydratePlayerStateFromCloud();
+    if (typeof dataBridge.ensureRolesDoc === "function") {
+      await dataBridge.ensureRolesDoc();
+    }
+    await loadRoleStateFromCloud();
 
     loginError.textContent = "";
     showDesktopAfterLogin();
