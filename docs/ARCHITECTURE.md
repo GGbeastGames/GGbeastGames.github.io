@@ -39,3 +39,26 @@
   2. build
   3. deploy `dist/` to GitHub Pages
 - Vite `base` is set to `/Aionous/` for Pages compatibility.
+
+## Update-Friendly Client State Layout
+To make future updates safer and faster, keep these boundaries clear:
+
+1. **Session/Auth boundary**
+   - Only auth listeners should decide whether app is in boot/login/desktop.
+   - Never force login from a timer if auth has a signed-in user.
+
+2. **Hydration boundary**
+   - Only write local cache or Firestore after the active UID is fully hydrated.
+   - Ignore stale async updates from previous users after account switches.
+
+3. **Persistence boundary**
+   - Keep cache strictly per user key: `aionous.desktop.v5.user.<uid>`.
+   - No signed-out/guest cache keys.
+
+4. **Cloud bootstrap boundary**
+   - New player docs are created from canonical defaults, not mutable in-memory state.
+   - Existing player docs remain the source of truth for settings/economy.
+
+5. **Failure visibility**
+   - Firestore sync failures must be user-visible in UI and include project context.
+   - Keep login blocked when cloud identity sync fails.

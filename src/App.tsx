@@ -137,8 +137,8 @@ const STORAGE_KEY = 'aionous.desktop.v5';
 const BOOT_MS = 2600;
 const MAX_LOGS = 100;
 
-function getStorageKey(uid?: string | null): string {
-  return uid ? `${STORAGE_KEY}.user.${uid}` : `${STORAGE_KEY}.signed-out`;
+function getStorageKey(uid: string): string {
+  return `${STORAGE_KEY}.user.${uid}`;
 }
 
 function createDefaultDesktopState(): PersistedDesktop {
@@ -213,55 +213,9 @@ function grantXpRewards(state: PlayerState, xpReward: number): { next: PlayerSta
   return { next: nextState, logs: nextLogs };
 }
 
-function readPersisted(storageKey: string): PersistedDesktop {
-  const defaults: PersistedDesktop = {
-    windows: seedWindows(),
-    player: defaultPlayerState,
-    cooldowns: defaultCooldowns,
-    progression: defaultProgressionState,
-    shopInventory: defaultShopInventory,
-    retention: defaultRetentionState,
-    casino: defaultCasinoState,
-    ranked: defaultRankedState,
-    blockchain: defaultBlockchainState,
-    growth: defaultGrowthState,
-    season: defaultSeasonState,
-    admin: defaultAdminState,
-    displaySettings: defaultDisplaySettings,
-    logs: [
-      makeLog('ROOTACCESS terminal online. Type `help` to list commands.', 'success'),
-      makeLog('Mission set: run command loops, then claim mission rewards in Profile.', 'info')
-    ]
-  };
-
-  try {
-    const raw = localStorage.getItem(storageKey);
-    if (!raw) return defaults;
-    const parsed = JSON.parse(raw) as Partial<PersistedDesktop>;
-    return {
-      windows: Array.isArray(parsed.windows) ? parsed.windows : defaults.windows,
-      player: parsed.player ? { ...defaults.player, ...parsed.player } : defaults.player,
-      cooldowns: parsed.cooldowns ? { ...defaults.cooldowns, ...parsed.cooldowns } : defaults.cooldowns,
-      progression: parsed.progression ? { ...defaults.progression, ...parsed.progression } : defaults.progression,
-      shopInventory: Array.isArray(parsed.shopInventory) ? parsed.shopInventory : defaults.shopInventory,
-      retention: parsed.retention ? { ...defaults.retention, ...parsed.retention } : defaults.retention,
-      casino: parsed.casino ? { ...defaults.casino, ...parsed.casino } : defaults.casino,
-      ranked: parsed.ranked ? { ...defaults.ranked, ...parsed.ranked } : defaults.ranked,
-      blockchain: parsed.blockchain ? { ...defaults.blockchain, ...parsed.blockchain } : defaults.blockchain,
-      growth: parsed.growth ? { ...defaults.growth, ...parsed.growth } : defaults.growth,
-      season: parsed.season ? { ...defaults.season, ...parsed.season } : defaults.season,
-      admin: parsed.admin ? { ...defaults.admin, ...parsed.admin } : defaults.admin,
-      displaySettings: parsed.displaySettings ? { ...defaults.displaySettings, ...parsed.displaySettings } : defaults.displaySettings,
-      logs: Array.isArray(parsed.logs) ? parsed.logs.slice(-MAX_LOGS) : defaults.logs
-    };
-  } catch {
-    return defaults;
-  }
-}
-
 export function App() {
   const [phase, setPhase] = useState<AppPhase>('boot');
-  const initial = useMemo(() => readPersisted(getStorageKey(null)), []);
+  const initial = useMemo(() => createDefaultDesktopState(), []);
   const [windows, setWindows] = useState<WindowState[]>(initial.windows);
   const [player, setPlayer] = useState<PlayerState>(initial.player);
   const [cooldowns, setCooldowns] = useState<Cooldowns>(initial.cooldowns);
@@ -289,33 +243,39 @@ export function App() {
   const [cloudAdmin, setCloudAdmin] = useState(false);
   const [cloudHydrated, setCloudHydrated] = useState(false);
   const [cloudSyncError, setCloudSyncError] = useState('');
+  const [authReady, setAuthReady] = useState(false);
+  const [hydratedUid, setHydratedUid] = useState<string | null>(null);
 
   const dragRef = useRef<{ id: AppId; offsetX: number; offsetY: number } | null>(null);
   const cloudApplyRef = useRef(false);
   const prevAuthUidRef = useRef<string | null>(null);
 
-  function loadStateFromCache(storageKey: string) {
-    const cached = readPersisted(storageKey);
-    setWindows(cached.windows);
-    setPlayer(cached.player);
-    setCooldowns(cached.cooldowns);
-    setProgression(cached.progression);
-    setShopInventory(cached.shopInventory);
-    setRetention(cached.retention);
-    setCasino(cached.casino);
-    setRanked(cached.ranked);
-    setBlockchain(cached.blockchain);
-    setGrowth(cached.growth);
-    setSeason(cached.season);
-    setAdmin(cached.admin);
-    setDisplaySettings(cached.displaySettings);
-    setLogs(cached.logs);
+  function resetStateToDefaults() {
+    const defaults = createDefaultDesktopState();
+    setWindows(defaults.windows);
+    setPlayer(defaults.player);
+    setCooldowns(defaults.cooldowns);
+    setProgression(defaults.progression);
+    setShopInventory(defaults.shopInventory);
+    setRetention(defaults.retention);
+    setCasino(defaults.casino);
+    setRanked(defaults.ranked);
+    setBlockchain(defaults.blockchain);
+    setGrowth(defaults.growth);
+    setSeason(defaults.season);
+    setAdmin(defaults.admin);
+    setDisplaySettings(defaults.displaySettings);
+    setLogs(defaults.logs);
   }
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setPhase('login'), BOOT_MS);
+    const timer = window.setTimeout(() => {
+      if (phase === 'boot' && authReady && !user) {
+        setPhase('login');
+      }
+    }, BOOT_MS);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [phase, authReady, user]);
 
   useEffect(() => {
     let unsub: () => void = () => {};
@@ -323,37 +283,51 @@ export function App() {
       unsub = onAuthStateChanged(auth, (nextUser) => {
         const nextUid = nextUser?.uid ?? null;
         const prevUid = prevAuthUidRef.current;
+
         if (nextUid !== prevUid) {
-          const storageKey = getStorageKey(nextUid);
-          loadStateFromCache(storageKey);
+          setHydratedUid(null);
           setInPvpQueue(false);
           setActiveMatch(null);
+          setCloudHydrated(false);
+          resetStateToDefaults();
         }
+
         prevAuthUidRef.current = nextUid;
         setCloudSyncError('');
         setUser(nextUser);
-        if (nextUser) setPhase('desktop');
+        setAuthReady(true);
+
+        if (!nextUser) {
+          setPhase('login');
+        }
       });
     });
     return () => unsub();
   }, []);
 
   useEffect(() => {
+    if (!authReady || !user || !cloudHydrated || hydratedUid !== user.uid) return;
+    setPhase('desktop');
+  }, [authReady, user, cloudHydrated, hydratedUid]);
+
+  useEffect(() => {
     if (!user) {
       setCloudHydrated(false);
       setCloudAdmin(false);
       setCloudSyncError('');
+      setHydratedUid(null);
       return;
     }
 
-    const playerRef = doc(db, 'players', user.uid);
+    const activeUid = user.uid;
+    const playerRef = doc(db, 'players', activeUid);
     const unsub = onSnapshot(
       playerRef,
       async (snapshot) => {
         try {
           if (!snapshot.exists()) {
-            const seededDesktop = readPersisted(getStorageKey(user.uid));
-            const bootstrap: Partial<CloudPlayerCard> = {
+            const defaults = createDefaultDesktopState();
+            const bootstrap: Partial<CloudPlayerCard & { meta: CloudPlayerCard['meta'] & { createdAt: unknown } }> = {
               schemaVersion: 1,
               profile: {
                 email: user.email ?? '',
@@ -362,40 +336,38 @@ export function App() {
               },
               roles: { admin: false, moderator: false },
               economy: {
-                nops: seededDesktop.player.nops,
-                flux: seededDesktop.casino.flux,
-                trace: seededDesktop.player.trace,
-                level: seededDesktop.player.level,
-                xp: seededDesktop.player.xp
+                nops: defaults.player.nops,
+                flux: defaults.casino.flux,
+                trace: defaults.player.trace,
+                level: defaults.player.level,
+                xp: defaults.player.xp
               },
               stats: {
-                totalRuns: seededDesktop.player.totalRuns,
-                successfulRuns: seededDesktop.player.totalSuccess,
-                rankedPoints: seededDesktop.ranked.rankedPoints,
-                streakDays: seededDesktop.retention.streakDays
+                totalRuns: defaults.player.totalRuns,
+                successfulRuns: defaults.player.totalSuccess,
+                rankedPoints: defaults.ranked.rankedPoints,
+                streakDays: defaults.retention.streakDays
               },
               progression: {
-                ownedCommandCount: seededDesktop.progression.ownedCommands.length,
-                pendingLessonCount: seededDesktop.progression.pendingLessons.length
+                ownedCommandCount: defaults.progression.ownedCommands.length,
+                pendingLessonCount: defaults.progression.pendingLessons.length
               },
-              desktopState: seededDesktop,
+              desktopState: defaults,
               meta: {
                 source: 'aionous-client',
+                createdAt: serverTimestamp(),
                 updatedAt: serverTimestamp()
               }
             };
 
             await setDoc(playerRef, bootstrap, { merge: true });
-            cloudApplyRef.current = true;
-            loadStateFromCache(getStorageKey(user.uid));
-            window.setTimeout(() => {
-              cloudApplyRef.current = false;
-            }, 0);
-            setCloudHydrated(true);
-            return;
           }
 
           const data = snapshot.data() as Partial<CloudPlayerCard>;
+          if (activeUid !== auth.currentUser?.uid) {
+            return;
+          }
+
           setCloudAdmin(Boolean(data.roles?.admin));
 
           const remote = data.desktopState ?? createDefaultDesktopState();
@@ -419,16 +391,23 @@ export function App() {
           }, 0);
 
           setCloudHydrated(true);
+          setHydratedUid(activeUid);
           setCloudSyncError('');
         } catch (error) {
           const reason = error instanceof Error ? error.message : 'Unknown Firestore error';
           setCloudSyncError(reason);
           setCloudHydrated(false);
+          setHydratedUid(null);
+          setAuthError(`Cloud sync failed (${import.meta.env.VITE_FIREBASE_PROJECT_ID ?? 'unknown-project'}): ${reason}`);
+          setPhase('login');
         }
       },
       (error) => {
         setCloudSyncError(error.message);
         setCloudHydrated(false);
+        setHydratedUid(null);
+        setAuthError(`Cloud sync failed (${import.meta.env.VITE_FIREBASE_PROJECT_ID ?? 'unknown-project'}): ${error.message}`);
+        setPhase('login');
       }
     );
 
@@ -436,7 +415,7 @@ export function App() {
   }, [user]);
 
   useEffect(() => {
-    if (!user || !cloudHydrated || cloudApplyRef.current) return;
+    if (!user || !cloudHydrated || cloudApplyRef.current || hydratedUid !== user.uid) return;
 
     const timer = window.setTimeout(() => {
       const playerRef = doc(db, 'players', user.uid);
@@ -497,6 +476,7 @@ export function App() {
   }, [
     user,
     cloudHydrated,
+    hydratedUid,
     cloudAdmin,
     windows,
     player,
@@ -515,7 +495,8 @@ export function App() {
   ]);
 
   useEffect(() => {
-    const storageKey = getStorageKey(user?.uid);
+    if (!user || hydratedUid !== user.uid) return;
+    const storageKey = getStorageKey(user.uid);
     localStorage.setItem(
       storageKey,
       JSON.stringify({
@@ -536,7 +517,8 @@ export function App() {
       } satisfies PersistedDesktop)
     );
   }, [
-    user?.uid,
+    user,
+    hydratedUid,
     windows,
     player,
     cooldowns,
@@ -557,6 +539,7 @@ export function App() {
     localStorage.removeItem('aionous.desktop.v4');
     localStorage.removeItem('aionous.desktop.v5.guest');
     localStorage.removeItem('aionous.desktop.v5.signed-default');
+    localStorage.removeItem('aionous.desktop.v5.signed-out');
   }, []);
 
   useEffect(() => {
@@ -1034,6 +1017,9 @@ export function App() {
       await deleteDoc(doc(db, 'pvpQueue', user.uid));
     }
     await signOut(auth);
+    setHydratedUid(null);
+    setCloudHydrated(false);
+    resetStateToDefaults();
     setPhase('login');
   }
 
