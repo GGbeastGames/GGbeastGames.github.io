@@ -5,30 +5,127 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isOwner(uid) {
-      return isSignedIn() && request.auth.uid == uid;
+    function uid() {
+      return request.auth.uid;
     }
 
-    function immutableIdentity(uid) {
-      return request.resource.data.identity.uid == uid
-        && resource.data.identity.uid == uid;
+    function isOwner(ownerUid) {
+      return isSignedIn() && uid() == ownerUid;
     }
 
-    match /users/{uid} {
-      allow create: if isOwner(uid)
-        && request.resource.data.identity.uid == uid
-        && request.resource.data.currencies is map
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.isAdmin == true;
+    }
+
+    function immutableIdentity(ownerUid) {
+      return request.resource.data.identity.uid == ownerUid
+        && resource.data.identity.uid == ownerUid;
+    }
+
+    function moneyFieldsUnchanged() {
+      return request.resource.data.wallet == resource.data.wallet
+        && request.resource.data.bank == resource.data.bank
+        && request.resource.data.netWorth == resource.data.netWorth;
+    }
+
+    function cooldownShape(ownerUid, commandId) {
+      return request.resource.data.uid == ownerUid
+        && request.resource.data.commandId == commandId
+        && request.resource.data.nextAllowedAt is timestamp
+        && request.resource.data.lastUsedAt is timestamp
+        && request.resource.data.lastUsedAt <= request.time
+        && request.resource.data.nextAllowedAt > request.time;
+    }
+
+    // Canonical user document containing private state and identity anchors.
+    match /users/{ownerUid} {
+      allow create: if isOwner(ownerUid)
+        && request.resource.data.identity.uid == ownerUid
+        && request.resource.data.wallet is int
+        && request.resource.data.bank is int
+        && request.resource.data.netWorth is int
         && request.resource.data.progression is map
-        && request.resource.data.inventory is map
         && request.resource.data.settings is map;
 
-      allow read: if isOwner(uid);
-      allow update: if isOwner(uid) && immutableIdentity(uid);
-      allow delete: if false;
+      allow read: if isOwner(ownerUid) || isAdmin();
 
-      match /{document=**} {
-        allow read, write: if isOwner(uid);
+      // Clients can update profile/settings but never mutable money fields.
+      allow update: if isOwner(ownerUid)
+        && immutableIdentity(ownerUid)
+        && moneyFieldsUnchanged();
+
+      allow delete: if false;
+    }
+
+    // Command metadata/config (global): only admins can mutate.
+    match /commands/{commandId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // User inventory tree. Private to owner, with optional admin read.
+    match /inventory/{ownerUid} {
+      allow read, write: if isOwner(ownerUid) || isAdmin();
+
+      match /items/{itemId} {
+        allow read, write: if isOwner(ownerUid) || isAdmin();
       }
+    }
+
+    // User cooldown states; each command entry is validated at rule level.
+    match /cooldowns/{ownerUid}/commands/{commandId} {
+      allow read: if isOwner(ownerUid) || isAdmin();
+
+      allow create: if isOwner(ownerUid)
+        && cooldownShape(ownerUid, commandId);
+
+      allow update: if isOwner(ownerUid)
+        && cooldownShape(ownerUid, commandId)
+        && request.resource.data.nextAllowedAt >= resource.data.nextAllowedAt;
+
+      allow delete: if false;
+    }
+
+    // Global events should only be managed by trusted admins.
+    match /events/{eventId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Market and stock data are readable by users and writable by admins only.
+    match /stocks/{symbol} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // PvP queue entries are private by uid.
+    match /pvpQueues/{ownerUid} {
+      allow read, write: if isOwner(ownerUid) || isAdmin();
+    }
+
+    // Match docs can be read/written by admins; users can read if participating.
+    match /matches/{matchId} {
+      allow read: if isAdmin()
+        || (isSignedIn() && uid() in resource.data.participants);
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Casino state per user: private + admin support.
+    match /casino/{ownerUid} {
+      allow read, write: if isOwner(ownerUid) || isAdmin();
+    }
+
+    // Badges can be read by everyone signed in; assignment is admin-only.
+    match /badges/{badgeId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Tamper-evident admin logs: append-only and admin-controlled.
+    match /adminLogs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin();
+      allow update, delete: if false;
     }
   }
 }
