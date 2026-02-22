@@ -48,20 +48,20 @@ Build also creates `dist/404.html` + `dist/.nojekyll` for GitHub Pages SPA fallb
 - ✅ Phase 13: Stability, UX modernization, diagnostics, and settings controls
 
 ## Phase docs
-- `docs/PHASE_01_CHECKLIST.md`
-- `docs/PHASE_02_VISUAL_SYSTEM.md`
-- `docs/PHASE_03_DESKTOP_AUTH.md`
-- `docs/PHASE_04_TERMINAL_CORE.md`
-- `docs/PHASE_05_BLACK_MARKET_INDEX_TRAITS.md`
-- `docs/PHASE_06_PROFILE_MISSIONS_RETENTION.md`
-- `docs/PHASE_07_CASINO_FLUX.md`
-- `docs/PHASE_08_PVP_ARENA.md`
-- `docs/PHASE_09_BLOCKCHAIN_MARKET.md`
-- `docs/PHASE_10_GROWTH_SYSTEMS.md`
-- `docs/PHASE_11_SEASONS_COSMETICS_MENTOR.md`
-- `docs/PHASE_12_ADMIN_LIVEOPS.md`
-- `docs/PHASE_13_STABILITY_GUI_ENHANCEMENTS.md`
-- `docs/PHASE_2_FIRESTORE_AUTH_AND_IDENTITY.md`
+- `docs/phases/PHASE_01_CHECKLIST.md`
+- `docs/phases/PHASE_02_VISUAL_SYSTEM.md`
+- `docs/phases/PHASE_03_DESKTOP_AUTH.md`
+- `docs/phases/PHASE_04_TERMINAL_CORE.md`
+- `docs/phases/PHASE_05_BLACK_MARKET_INDEX_TRAITS.md`
+- `docs/phases/PHASE_06_PROFILE_MISSIONS_RETENTION.md`
+- `docs/phases/PHASE_07_CASINO_FLUX.md`
+- `docs/phases/PHASE_08_PVP_ARENA.md`
+- `docs/phases/PHASE_09_BLOCKCHAIN_MARKET.md`
+- `docs/phases/PHASE_10_GROWTH_SYSTEMS.md`
+- `docs/phases/PHASE_11_SEASONS_COSMETICS_MENTOR.md`
+- `docs/phases/PHASE_12_ADMIN_LIVEOPS.md`
+- `docs/phases/PHASE_13_STABILITY_GUI_ENHANCEMENTS.md`
+- `docs/phases/PHASE_2_FIRESTORE_AUTH_AND_IDENTITY.md`
 - `config/FIREBASE_RULES.md`
 - `config/FIREBASE_SETUP.md`
 - `config/FIRESTORE_PLAYER_CARD_SCHEMA.md`

@@ -297,7 +297,7 @@ export function App() {
       const nextUid = nextUser?.uid ?? null;
       const prevUid = prevAuthUidRef.current;
       if (nextUid !== prevUid) {
-        const storageKey = nextUid ? `${STORAGE_KEY}.${nextUid}` : `${STORAGE_KEY}.guest`;
+        const storageKey = nextUid ? `${STORAGE_KEY}.signed-default` : `${STORAGE_KEY}.guest`;
         loadStateFromCache(storageKey);
         setInPvpQueue(false);
         setActiveMatch(null);
@@ -483,7 +483,8 @@ export function App() {
   ]);
 
   useEffect(() => {
-    const storageKey = user?.uid ? `${STORAGE_KEY}.${user.uid}` : `${STORAGE_KEY}.guest`;
+    if (user?.uid && !guestMode) return;
+    const storageKey = `${STORAGE_KEY}.guest`;
     localStorage.setItem(
       storageKey,
       JSON.stringify({
@@ -503,7 +504,15 @@ export function App() {
         logs: logs.slice(-MAX_LOGS)
       } satisfies PersistedDesktop)
     );
-  }, [user, windows, player, cooldowns, progression, shopInventory, retention, casino, ranked, blockchain, growth, season, admin, displaySettings, logs]);
+  }, [user, guestMode, windows, player, cooldowns, progression, shopInventory, retention, casino, ranked, blockchain, growth, season, admin, displaySettings, logs]);
+
+
+  useEffect(() => {
+    const legacy = localStorage.getItem('aionous.desktop.v4');
+    if (legacy) {
+      localStorage.removeItem('aionous.desktop.v4');
+    }
+  }, []);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -1083,12 +1092,12 @@ export function App() {
           <h2>Operator: {desktopIdentity}</h2>
         </div>
         <div className="header-metrics">
-          <span>Balance: {player.nops} Ø</span>
-          <span>Trace: {player.trace}%</span>
-          <span>Win rate: {successRate}%</span>
-          <span>Streak: {retention.streakDays}d</span>
-          <span>Flux: {casino.flux}ƒ</span>
-          <span>Ranked: {ranked.rankedPoints} RP</span>
+          <article><small>Balance</small><strong>{player.nops} Ø</strong></article>
+          <article><small>Trace</small><strong>{player.trace}%</strong></article>
+          <article><small>Success</small><strong>{successRate}%</strong></article>
+          <article><small>Streak</small><strong>{retention.streakDays}d</strong></article>
+          <article><small>Flux</small><strong>{casino.flux}ƒ</strong></article>
+          <article><small>Rank</small><strong>{ranked.rankedPoints} RP</strong></article>
         </div>
         <button type="button" onClick={handleSignOut} className="danger">
           Sign Out
