@@ -132,8 +132,8 @@ export async function initFirebaseDataBridge({ uid, onStatus = () => {} } = {}) 
     );
 
     const db = firestoreMod.getFirestore(app);
-    const stateRef = firestoreMod.doc(db, 'users', uid, 'meta', 'gameState');
-    const roleRef = firestoreMod.doc(db, 'users', uid, 'meta', 'roles');
+    const stateRef = firestoreMod.doc(db, 'players', uid, 'meta', 'gameState');
+    const roleRef = firestoreMod.doc(db, 'players', uid, 'meta', 'roles');
     const auditLogsRef = firestoreMod.collection(db, 'admin', 'auditLogs', 'entries');
 
     onStatus('online');

@@ -1432,8 +1432,8 @@ function initAuthBridge() {
       logDiagnostic('warn', 'firebase auth bridge promise rejected unexpectedly', { error: String(error) });
       authBridge = {
         mode: 'offline',
-        authenticate: async () => ({ ok: false, message: 'Authentication temporarily unavailable.' }),
-        register: async () => ({ ok: false, message: 'Signup temporarily unavailable.' }),
+        authenticate: async () => ({ ok: false, message: 'Authentication unavailable. Check network/CSP and Firebase Auth provider settings.' }),
+        register: async () => ({ ok: false, message: 'Signup unavailable. Enable Email/Password in Firebase and verify deployed config.' }),
       };
       if (bootStatus && !windowState.desktopInitialized) bootStatus.textContent = 'AUTH OFFLINE';
     });
@@ -1596,6 +1596,14 @@ function mountExperienceShell() {
   bootFallback.classList.remove("boot-fallback--visible");
 
   initLoginFlow();
+
+  // Keep warning visible briefly for diagnostics but do not block gameplay flow.
+  window.setTimeout(() => {
+    const fallback = getEl("boot-fallback");
+    if (fallback && !appRuntimeState.startupWindowOpen) {
+      fallback.classList.remove("boot-fallback--visible");
+    }
+  }, 2600);
 }
 
 function runPhase12HealthChecks() {
@@ -1634,7 +1642,7 @@ function installGlobalErrorGuards() {
     };
 
     if (appRuntimeState.startupWindowOpen) {
-      failBoot("runtime error during startup", context);
+      warnBoot("runtime error detected during startup", context);
       return;
     }
 

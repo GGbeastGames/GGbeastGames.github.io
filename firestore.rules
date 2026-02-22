@@ -1,0 +1,44 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function roleDoc(uid) {
+      return get(/databases/$(database)/documents/players/$(uid)/meta/roles);
+    }
+
+    function isAdmin(uid) {
+      return roleDoc(uid).data.isAdmin == true;
+    }
+
+    function isModerator(uid) {
+      return roleDoc(uid).data.isModerator == true;
+    }
+
+    function isEconomyOps(uid) {
+      return roleDoc(uid).data.isEconomyOps == true;
+    }
+
+    match /players/{uid}/{document=**} {
+      allow read: if isOwner(uid);
+      allow create, update, delete: if isOwner(uid);
+    }
+
+    // Immutable audit logs; only privileged users can append.
+    match /admin/auditLogs/entries/{logId} {
+      allow read: if signedIn() && (isAdmin(request.auth.uid) || isModerator(request.auth.uid) || isEconomyOps(request.auth.uid));
+      allow create: if signedIn() && (isAdmin(request.auth.uid) || isModerator(request.auth.uid) || isEconomyOps(request.auth.uid));
+      allow update, delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

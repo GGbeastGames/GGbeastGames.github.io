@@ -4,16 +4,16 @@ This file defines the baseline data model and security intent for production-saf
 
 ## 1) Collections
 
-- `users/{uid}`
+- `players/{uid}`
   - `profile`: `{ handle, avatarId, createdAt, lastLoginAt }`
   - `wallet`: `{ nops: number, lifetimeEarned: number, lifetimeSpent: number }`
   - `roles`: `{ isAdmin: boolean, isModerator: boolean, isEconomyOps: boolean }`
   - `progress`: `{ tutorialStage, faction, seasonRank, contentVersion }`
 
-- `users/{uid}/commands/{commandId}`
+- `players/{uid}/commands/{commandId}`
   - `{ owned, hasTraitSpring, level, unlockedAt, lastRunAt, cooldownUntil }`
 
-- `users/{uid}/inventory/{itemId}`
+- `players/{uid}/inventory/{itemId}`
   - `{ type, quantity, rarity, metadata }`
 
 - `market/companies/{ticker}`
@@ -31,7 +31,7 @@ This file defines the baseline data model and security intent for production-saf
 ## 2) Access Matrix
 
 - Player:
-  - read/write own `users/{uid}` and nested subcollections via strict field constraints.
+  - read/write own `players/{uid}` and nested subcollections via strict field constraints.
 - Admin (`roles.isAdmin == true`):
   - access admin actions through callable functions only.
 - Moderator:
